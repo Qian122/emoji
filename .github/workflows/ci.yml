@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai-service/requirements-base.txt
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Install AI base dependencies
+        run: python -m pip install -r ai-service/requirements-base.txt
+
+      - name: Static checks
+        run: npm run check
+
+      - name: Node integration tests
+        run: npm test
+
+      - name: AI unit tests
+        run: npm run test:ai
