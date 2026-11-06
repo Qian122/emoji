@@ -190,7 +190,7 @@
 | NFR-USA-01 | 易用性 | 常用操作不超过三级导航，失败时显示中文错误信息 |
 | NFR-MNT-01 | 可维护性 | 前端、业务路由、数据库、实时通信和 AI 服务分目录组织 |
 | NFR-DEP-01 | 可部署性 | 支持本机启动和 Docker Compose 两种部署方式 |
-| NFR-TST-01 | 可测试性 | 静态检查、16 项 Node 测试和 6 项 AI 测试可由 CI 自动执行 |
+| NFR-TST-01 | 可测试性 | 静态检查、16 项 Node 测试和 9 项 AI 测试可由 CI 自动执行 |
 
 ## 10 数据需求
 
@@ -211,7 +211,7 @@
 | FR-CLS | 设计文档第 2、4 节 | 管理接口、`class_sessions`、`schedule_users` | T04、T05 |
 | FR-EMOJI | 设计文档第 3、4 节 | `/api/emoji`、历史接口 | T01、T05、T14 |
 | FR-DASH | 设计文档第 3、5 节 | 统计接口、`server/realtime.js`、前端 SVG | T06、T07、T09 |
-| FR-AI | 设计文档第 3、6 节 | `ai-service/main.py`、AI 入库接口 | A01-A06、T08 |
+| FR-AI | 设计文档第 3、6 节 | `ai-service/main.py`、AI 入库接口 | A01-A09、T08 |
 | NFR | 设计文档第 6-8 节 | 全项目、Docker、CI | 静态检查、人工验收、部署检查 |
 
 ## 12 不在本次必做范围的扩展

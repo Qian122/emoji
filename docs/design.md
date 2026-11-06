@@ -290,6 +290,6 @@ flowchart TB
 | 数据模型和索引 | `server/db.js`、`docs/database-schema.sql` | 内存数据库测试、持久化检查 |
 | 实时课堂房间 | `server/realtime.js` | T07 |
 | OpenAPI | `server/openapi.js` | T11、Swagger 页面 |
-| AI 推理 | `ai-service/main.py` | A01-A06、现场摄像头测试 |
+| AI 推理 | `ai-service/main.py` | A01-A09、现场摄像头测试 |
 | 容器部署 | `Dockerfile`、`docker-compose.yml` | Docker 现场启动 |
 | CI | `.github/workflows/ci.yml` | GitHub Actions 执行记录 |

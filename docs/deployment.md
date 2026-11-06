@@ -83,6 +83,12 @@ docker compose down
 | AI_CAMERA_INDEX | 摄像头编号 | 默认 0 |
 | AI_DETECTOR_BACKENDS | 人脸检测器顺序 | 默认 `opencv,mtcnn`，快速检测失败后自动使用高灵敏度检测器 |
 | AI_FACE_EXPAND_PERCENTAGE | 人脸区域扩展比例 | 默认 15，保留更多面部边缘信息 |
+| AI_TEMPORAL_WINDOW | 连续帧融合窗口 | 默认 3 帧，减少单帧跳变 |
+| AI_TEMPORAL_TTL_SECONDS | 连续帧有效期 | 默认 15 秒，超时后重新收集 |
+| AI_MIN_TEMPORAL_AGREEMENT | 连续帧最低一致率 | 默认 0.67 |
+| AI_MIN_EMOTION_MARGIN | 第一、第二候选最小差值 | 默认 0.12 |
+| AI_CONFUSED_MIN_MARGIN | 困惑候选最小差值 | 默认 0.20，降低 `fear` 映射造成的误判 |
+| AI_THRESHOLD_* | 各类别独立阈值 | 开心默认 0.68，困惑默认 0.75，其余主要类别默认 0.70 左右 |
 
 可用 PowerShell 生成随机密钥：
 
@@ -192,7 +198,7 @@ npm run test:ai
 | 密钥配置 | JWT、AI 令牌和管理员注册码使用独立配置 |
 | 配置隔离 | `.env` 不进入源码仓库和提交包 |
 | 服务健康 | Node 和 AI 健康接口返回 UP |
-| 自动化测试 | Node 16 项、AI 6 项测试全部通过 |
+| 自动化测试 | Node 16 项、AI 9 项测试全部通过 |
 | 角色流程 | 学生、教师、管理员流程均可完成 |
 | 视频推理 | 摄像头采样、情绪映射、阈值过滤和入库正常 |
 | 容器部署 | Compose 服务、网络和数据卷运行正常 |

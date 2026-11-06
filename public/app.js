@@ -9,6 +9,7 @@ const state = {
   cameraDetectionActive: false,
   cameraDetectionTimer: null,
   cameraBusy: false,
+  cameraDeviceId: globalThis.crypto?.randomUUID?.() || `web-camera-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   cameraMetrics: { samples: 0, accepted: 0, filtered: 0 },
   statisticsFilters: { course: '', className: '', from: '', to: '' }
 };
@@ -18,6 +19,7 @@ const EMOJIS = {
   SAD: ['😢', '难过'], ANGRY: ['😠', '生气'], SURPRISED: ['😮', '惊讶']
 };
 const ROLE_NAMES = { STUDENT: '学生', TEACHER: '教师', ADMIN: '管理员' };
+const RAW_EMOTION_NAMES = { happy: '开心', neutral: '平静', fear: '恐惧/困惑候选', disgust: '厌恶', angry: '愤怒', sad: '悲伤', surprise: '惊讶' };
 const NAV = {
   STUDENT: [['home', '⌂', '情绪打卡'], ['history', '◷', '我的历史'], ['profile', '○', '账号设置']],
   TEACHER: [['home', '⌂', '教学看板'], ['camera', '◉', 'AI 摄像头'], ['history', '◷', '课堂记录'], ['statistics', '▥', '统计分析'], ['profile', '○', '账号设置']],
@@ -28,6 +30,8 @@ const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
 const emojiLabel = (type) => EMOJIS[type] ? `${EMOJIS[type][0]} ${EMOJIS[type][1]}` : type;
+const topEmotionScores = (item) => Object.entries(item.emotionScores || {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, score]) => `${RAW_EMOTION_NAMES[name] || name} ${Math.round(score * 100)}%`).join(' / ');
+const cameraFilterReason = (item) => item?.reason === 'AMBIGUOUS' ? '第一候选与第二候选过于接近' : item?.reason === 'UNSTABLE' ? '连续帧结果不稳定' : item?.reason === 'LOW_IMAGE_QUALITY' ? '画面过暗、过亮或过于模糊' : '置信度未达到该类别阈值';
 
 async function api(url, options = {}) {
   const headers = { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers };
@@ -323,7 +327,8 @@ async function analyzeCameraFrame(scheduleNext) {
     const canvas = $('#cameraCanvas');
     let result = null;
     let attempts = 0;
-    while (attempts < 3 && state.cameraStream) {
+    let maxAttempts = 3;
+    while (attempts < maxAttempts && state.cameraStream) {
       attempts += 1;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -333,11 +338,16 @@ async function analyzeCameraFrame(scheduleNext) {
         body: JSON.stringify({
           sessionId: Number($('#cameraSession').value),
           imageBase64: canvas.toDataURL('image/jpeg', 0.9),
-          deviceId: 'web-camera-preview'
+          deviceId: state.cameraDeviceId
         })
       });
-      if (result.faces || attempts === 3) break;
-      setCameraStatus(`第 ${attempts} 帧未检测到人脸，正在自动重试…`);
+      maxAttempts = Math.min(6, Math.max(maxAttempts, (Number(result.temporalWindow) || 3) + 3));
+      if ((result.accepted?.length || result.filtered?.length) || attempts === maxAttempts) break;
+      if (result.pending) {
+        setCameraStatus(`已采集 ${result.pending.framesCollected}/${result.pending.framesRequired} 帧，正在融合连续画面…`);
+      } else {
+        setCameraStatus(`第 ${attempts} 帧未检测到人脸，正在自动重试…`);
+      }
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
     const accepted = result.accepted || [];
@@ -346,17 +356,23 @@ async function analyzeCameraFrame(scheduleNext) {
     state.cameraMetrics.accepted += accepted.length;
     state.cameraMetrics.filtered += filtered.length;
     renderCameraMetrics();
+    const qualityWarnings = result.quality?.warnings || [];
+    const qualityHint = qualityWarnings.includes('LOW_LIGHT') ? '，当前光线偏暗' : qualityWarnings.includes('OVEREXPOSED') ? '，当前画面过亮' : qualityWarnings.includes('BLURRY') ? '，当前画面较模糊' : '';
     if (!result.faces) {
-      setCameraStatus('连续 3 帧均未检测到人脸，请正对镜头、靠近一些并保证光线充足。');
-      $('#cameraResult').innerHTML = '<div class="empty">连续 3 帧未检测到人脸</div>';
+      setCameraStatus(`连续 ${attempts} 帧均未检测到人脸，请正对镜头、靠近一些并保证光线充足。`);
+      $('#cameraResult').innerHTML = `<div class="empty">连续 ${attempts} 帧未检测到人脸</div>`;
+    } else if (result.pending) {
+      setCameraStatus(`已采集 ${result.pending.framesCollected}/${result.pending.framesRequired} 帧，尚未形成稳定结论${qualityHint}。`);
+      $('#cameraResult').innerHTML = '<div class="empty">正在收集连续画面</div>';
     } else if (accepted.length) {
       const latest = accepted[0];
-      setCameraStatus(`检测成功：${emojiLabel(latest.emojiType)}，置信度 ${Math.round(latest.confidence * 100)}%，已写入数据库。`, 'success');
-      $('#cameraResult').innerHTML = accepted.map((item) => `<div class="camera-result-item"><span class="camera-result-emoji">${EMOJIS[item.emojiType]?.[0] || '🙂'}</span><div><strong>${escapeHtml(item.rawEmotion)} → ${escapeHtml(EMOJIS[item.emojiType]?.[1] || item.emojiType)}</strong><small>置信度 ${Math.round(item.confidence * 100)}% · 已入库</small></div></div>`).join('');
+      setCameraStatus(`检测成功：${emojiLabel(latest.emojiType)}，融合置信度 ${Math.round(latest.confidence * 100)}%，已写入数据库${qualityHint}。`, 'success');
+      $('#cameraResult').innerHTML = accepted.map((item) => `<div class="camera-result-item"><span class="camera-result-emoji">${EMOJIS[item.emojiType]?.[0] || '🙂'}</span><div><strong>${escapeHtml(item.rawEmotion)} → ${escapeHtml(EMOJIS[item.emojiType]?.[1] || item.emojiType)}</strong><small>${escapeHtml(topEmotionScores(item))}</small><small>融合 ${item.temporalFrames || 1} 帧 · 置信度 ${Math.round(item.confidence * 100)}% · 候选差值 ${Math.round((item.margin || 0) * 100)}% · 已入库</small></div></div>`).join('');
     } else {
       const latest = filtered[0];
-      setCameraStatus(`检测到人脸，但置信度 ${latest ? Math.round(latest.confidence * 100) : 0}% 低于阈值 ${Math.round((result.threshold || 0.65) * 100)}%，未入库。`);
-      $('#cameraResult').innerHTML = filtered.map((item) => `<div class="camera-result-item muted"><span class="camera-result-emoji">${EMOJIS[item.emojiType]?.[0] || '🙂'}</span><div><strong>${escapeHtml(item.rawEmotion)} → ${escapeHtml(EMOJIS[item.emojiType]?.[1] || item.emojiType)}</strong><small>置信度 ${Math.round(item.confidence * 100)}% · 已过滤</small></div></div>`).join('');
+      const reasonText = cameraFilterReason(latest);
+      setCameraStatus(`检测到人脸，但${reasonText}，本次未入库${qualityHint}。`);
+      $('#cameraResult').innerHTML = filtered.map((item) => `<div class="camera-result-item muted"><span class="camera-result-emoji">${EMOJIS[item.emojiType]?.[0] || '🙂'}</span><div><strong>${escapeHtml(item.rawEmotion)} → ${escapeHtml(EMOJIS[item.emojiType]?.[1] || item.emojiType)}</strong><small>${escapeHtml(topEmotionScores(item))}</small><small>融合 ${item.temporalFrames || 1} 帧 · 置信度 ${Math.round(item.confidence * 100)}% · 候选差值 ${Math.round((item.margin || 0) * 100)}% · ${escapeHtml(cameraFilterReason(item))}</small></div></div>`).join('');
     }
   } catch (error) {
     setCameraStatus(error.message, 'error');
