@@ -405,50 +405,52 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 }
 ```
 
-返回检测到的人脸数量、连续帧收集状态、融合后的情绪概率、第一与第二候选差值、图像质量、已入库结果和过滤原因。过滤原因包括低置信度、候选接近、连续帧不稳定和图像质量过低。学生调用返回 403，AI 服务不可用时返回 502。
+返回检测到的人脸数量、已入库结果、低置信度过滤结果和当前阈值。学生调用返回 403，AI 服务不可用时返回 502。
 
-连续帧收集中的典型响应：
+检测到人脸并通过阈值时的典型响应：
 
 ```json
 {
   "success": true,
   "data": {
     "faces": 1,
-    "accepted": [],
+    "accepted": [
+      {
+        "emojiType": "HAPPY",
+        "confidence": 0.91,
+        "rawEmotion": "happy",
+        "detectorBackend": "mtcnn",
+        "backend": {
+          "success": true,
+          "data": { "accepted": true, "id": 10 }
+        }
+      }
+    ],
     "filtered": [],
-    "pending": { "framesCollected": 2, "framesRequired": 3 },
-    "quality": { "brightness": 112.4, "sharpness": 94.8, "warnings": [] },
-    "threshold": 0.65,
-    "temporalWindow": 3
+    "threshold": 0.65
   }
 }
 ```
 
-融合完成后，`accepted` 或 `filtered` 中的对象包含以下判定字段：
+`accepted` 或 `filtered` 中的对象包含以下判定字段：
 
 | 字段 | 说明 |
 |---|---|
 | `emojiType` | 映射后的六类 emoji |
-| `confidence`、`rawEmotion` | 融合后主类别概率和 DeepFace 原始类别 |
-| `runnerUpEmotion`、`runnerUpConfidence` | 第二候选及概率 |
-| `margin` | 第一、第二候选概率差 |
-| `emotionScores` | DeepFace 七类归一化概率 |
+| `confidence`、`rawEmotion` | 当前帧主类别置信度和 DeepFace 原始类别 |
 | `detectorBackend` | 实际成功的 `opencv` 或 `mtcnn` 检测器 |
-| `temporalFrames`、`agreement` | 融合帧数和帧间主类别一致率 |
-| `confidenceThreshold`、`marginThreshold` | 本次判定实际采用的阈值 |
 | `backend` | 仅 `accepted` 包含，表示后端入库响应 |
-| `reason` | 仅 `filtered` 包含，表示过滤原因 |
 
-`reason` 可取 `LOW_CONFIDENCE`、`AMBIGUOUS`、`UNSTABLE` 或 `LOW_IMAGE_QUALITY`。无人脸时 `faces=0`，结果数组为空，不写入数据库。
+低于统一置信度阈值的结果进入 `filtered`，不会提交后端。无人脸时返回 `faces=0`，`accepted` 与 `filtered` 均为空，不写入数据库。
 
 ## 10 AI 服务接口
 
 ### 10.1 AI 健康检查
 
 - 方法：`GET http://localhost:8000/health`
-- 返回：服务状态、后端地址、检测器、基础与分类阈值、连续帧窗口、候选差值、摄像头运行状态和视觉依赖可用性。
+- 返回：服务状态、后端地址、阈值、摄像头运行状态和视觉依赖可用性。
 
-关键字段为 `status`、`backendUrl`、`visionAvailable`、`cameraRunning`、`detectorBackends`、`faceExpandPercentage`、`threshold`、`temporalWindow`、`minimumEmotionMargin`、`minimumTemporalAgreement` 和 `classThresholds`。
+关键字段为 `status`、`backendUrl`、`visionAvailable`、`cameraRunning`、`detectorBackends`、`faceExpandPercentage` 和 `threshold`。
 
 ### 10.2 模拟结果
 
@@ -469,7 +471,7 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 - 方法：`POST http://localhost:8000/analyze-frame`
 - 内容类型：`application/json`
 - 输入：Base64 编码图像、课堂编号和设备编号
-- 输出：检测到的人脸数量、图像质量、连续帧融合进度、各表情概率、候选差值、映射结果、过滤原因和提交状态。
+- 输出：检测到的人脸数量、映射结果和提交状态。
 
 ```json
 {

@@ -45,17 +45,16 @@ flowchart TB
 
   subgraph Inference[AI 推理子系统]
     FastAPI[FastAPI 接口]
-    Quality[图像质量评估]
     Detect[OpenCV / MTCNN 人脸检测]
     Emotion[DeepFace 情绪分类]
-    Fusion[多帧概率融合与过滤]
-    FastAPI --> Quality --> Detect --> Emotion --> Fusion
+    Filter[统一置信度过滤与 emoji 映射]
+    FastAPI --> Detect --> Emotion --> Filter
   end
 
   Presenter -->|REST + JWT| Controller
   Presenter <-->|Socket.IO| Realtime
   Controller -->|浏览器帧代理| FastAPI
-  Fusion -->|匿名 AI 结果| Controller
+  Filter -->|匿名 AI 结果| Controller
   Repository --> Database[(SQLite 文件)]
 ```
 
@@ -69,7 +68,7 @@ flowchart TB
 | Service | `server/app.js` 中的认证、权限、统计、导出和课堂归属逻辑 | 执行 RBAC、排课校验、教师数据边界、聚合统计和安全导出 |
 | Repository | `server/db.js` 与参数化 SQL | 建表、事务、索引、查询和持久化 |
 | Realtime Adapter | `server/realtime.js` | JWT 握手、课堂房间授权和 `emoji:new` 广播 |
-| AI Service | `ai-service/main.py` | 解码帧、质量检查、人脸检测、情绪分类、多帧融合、阈值过滤和结果提交 |
+| AI Service | `ai-service/main.py` | 解码单帧、人脸检测、情绪分类、统一阈值过滤和结果提交 |
 
 修改版 MVC 的核心变化是加入 ViewModel/Presenter、Service、Repository、实时适配器和独立 AI 服务。这样既保留 MVC 的职责分离，又能处理单页界面状态、实时消息和计算密集型 AI 推理。
 
@@ -117,17 +116,17 @@ erDiagram
   }
   EMOJI_RECORD {
     integer id PK
-    integer user_id FK nullable
+    integer user_id FK "nullable"
     integer session_id FK
     text emoji_type
     text recorded_at
     text source
-    real confidence nullable
+    real confidence "nullable"
     text device_id
   }
   AUDIT_LOG {
     integer id PK
-    integer user_id FK nullable
+    integer user_id FK "nullable"
     text action
     text details
     text ip_address
@@ -183,16 +182,14 @@ sequenceDiagram
   participant DB as SQLite
   C->>W: 采样内存帧
   W->>AI: POST /analyze-frame
-  AI->>AI: 亮度与清晰度检查
   AI->>M: OpenCV 检测，失败时 MTCNN 兜底
-  M-->>AI: 七类情绪概率
-  AI->>AI: 连续 3 个有效帧概率融合
-  AI->>AI: 类别阈值、候选差值和一致性过滤
+  M-->>AI: 当前帧主情绪与置信度
+  AI->>AI: 统一置信度阈值过滤并映射 emoji
   AI->>API: POST /api/ai/emoji-results
   API->>API: 校验 X-AI-Token
   API->>API: 再次校验课堂、类型和置信度
   API->>DB: 匿名 AI 记录入库
-  API-->>W: accepted / filtered / pending
+  API-->>W: accepted / filtered
 ```
 
 ### 3.3 管理员创建课堂并安排名单
@@ -229,9 +226,9 @@ sequenceDiagram
     B->>API: POST /api/ai/analyze-frame + JWT
     API->>API: 校验角色与课堂归属
     API->>AI: POST /analyze-frame
-    AI-->>API: faces / pending / accepted / filtered / quality
+    AI-->>API: faces / accepted / filtered / threshold
     API-->>B: 转发分析结果
-    B->>B: 显示前三概率、阈值、差值和过滤原因
+    B->>B: 显示当前情绪、置信度、检测器和处理结果
   end
   U->>B: 停止并释放
   B->>B: stop MediaStream tracks
@@ -386,16 +383,15 @@ JWT 每次请求都重新查询账号状态，因此管理员停用账号后，�
 | sad | SAD |
 | surprise | SURPRISED |
 
-DeepFace 没有独立“困惑”类别，因此 `fear → CONFUSED` 只是课堂语境下的启发式候选映射，使用更高的类别阈值和候选差值要求。它不能证明学生真实困惑，也不能替代学生主动提交。
+DeepFace 没有独立“困惑”类别，因此 `fear → CONFUSED` 只是课堂语境下的启发式映射。它不能证明学生真实困惑，也不能替代学生主动提交。
 
-每个有效人脸帧保留七类归一化概率。系统按 `sessionId + deviceId` 建立短期缓冲区，收集连续 3 个有效人脸帧后对各类别概率取均值，再计算主类别、第二候选、二者差值和帧间一致率。依次执行以下过滤：
+每次分析以当前单帧为单位，处理流程如下：
 
-1. 极暗、过曝或严重模糊时返回 `LOW_IMAGE_QUALITY`；
-2. 未收集满连续帧时返回 `pending`，不写入数据库；
-3. 低于基础阈值与类别阈值的较大者时返回 `LOW_CONFIDENCE`；
-4. 第一、第二候选差值不足时返回 `AMBIGUOUS`；
-5. 多帧主类别一致率不足时返回 `UNSTABLE`；
-6. 通过全部条件后映射 emoji，经 AI 独立令牌提交后端；后端再次执行阈值校验。
+1. 解码浏览器上传帧或摄像头采样帧；
+2. 优先使用 OpenCV 检测人脸；未检出时放大低分辨率画面并使用 MTCNN 兜底；
+3. 适度扩展人脸区域，由 DeepFace 输出主情绪和置信度；
+4. 置信度低于统一阈值时返回 `LOW_CONFIDENCE`，不写入数据库；
+5. 高于阈值时映射为系统 emoji，经 AI 独立令牌提交后端；后端再次执行阈值校验。
 
 ### 13.3 CSV 安全导出
 
@@ -410,7 +406,7 @@ DeepFace 没有独立“困惑”类别，因此 `fear → CONFUSED` 只是课�
 | 参数、时间或枚举错误 | Zod/Pydantic 返回 400 | 不产生部分数据 |
 | AI 服务不可用 | Web 帧代理返回 502 | 手动 emoji、历史、统计仍可用 |
 | 未安装 OpenCV/DeepFace | AI 视觉接口返回 503 | `/health` 与 `/simulate` 仍可用 |
-| 无人脸或帧数不足 | 返回空结果或 `pending` | 不写入错误记录 |
+| 当前帧未检测到人脸 | 返回空结果 | 不写入错误记录，可由 Web 端自动采集下一帧重试 |
 | 后端暂时不可用 | AI 最多重试 3 次并指数退避 | 原始帧不持久化 |
 | 摄像头已被占用 | 后台任务无法打开设备或返回冲突 | 浏览器可释放设备后重试 |
 
@@ -437,6 +433,6 @@ flowchart TB
 | 数据模型和索引 | `server/db.js`、`docs/database-schema.sql` | 内存数据库测试、持久化检查 |
 | 实时课堂房间 | `server/realtime.js` | T07 |
 | OpenAPI | `server/openapi.js` | T11、Swagger 页面 |
-| AI 推理 | `ai-service/main.py` | A01-A09、真实摄像头链路验证 |
-| 容器部署 | `Dockerfile`、`docker-compose.yml` | Compose 配置解析与部署用例 TC-26 |
+| AI 推理 | `ai-service/main.py` | A01-A06、真实摄像头链路验证 |
+| 容器部署 | `Dockerfile`、`docker-compose.yml` | Compose 配置解析与部署用例 TC-25 |
 | CI | `.github/workflows/ci.yml` | GitHub Actions 执行记录 |

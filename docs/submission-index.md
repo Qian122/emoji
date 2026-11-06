@@ -27,10 +27,17 @@
 | 11 | 验收检查表 | [acceptance-checklist.md](acceptance-checklist.md) | 功能、安全、数据、文档和工程验收 |
 | 12 | 要求覆盖矩阵 | [requirements-coverage.md](requirements-coverage.md) | 指导书要求与实现、测试证据对应关系 |
 | 13 | 版本控制记录 | [version-control-record.md](version-control-record.md) | 仓库、分支、提交规范和版本标签 |
-| 14 | 演示脚本 | [demo-script.md](demo-script.md) | 系统答辩演示流程 |
-| 15 | 完整人工测试操作手册 | [manual-test-guide.md](manual-test-guide.md) | 三角色、AI、摄像头、安全、部署和提交验收步骤 |
 
-## 3 源码与工程材料
+## 3 工作过程产出
+
+以下材料用于开发、联调和答辩准备，不属于实验正式文档：
+
+| 编号 | 文档 | 文件 | 主要内容 |
+|---:|---|---|---|
+| 01 | 演示脚本 | [工作过程产出/demo-script.md](工作过程产出/demo-script.md) | 系统答辩演示流程 |
+| 02 | 完整人工测试操作手册 | [工作过程产出/manual-test-guide.md](工作过程产出/manual-test-guide.md) | 三角色、AI、摄像头、安全与部署操作步骤 |
+
+## 4 源码与工程材料
 
 | 材料 | 位置 | 说明 |
 |---|---|---|
@@ -42,24 +49,25 @@
 | 容器化 | `Dockerfile`、`docker-compose.yml` | 后端和 AI 服务容器部署 |
 | 在线接口文档 | `/api/docs` | Swagger UI |
 
-## 4 验证结果
+## 5 验证结果
 
 | 项目 | 结果 |
 |---|---|
 | JavaScript/Python 静态检查 | 通过 |
 | Node 集成测试 | 16/16 通过 |
-| AI 单元测试 | 9/9 通过 |
+| AI 单元测试 | 6/6 通过 |
 | 后端健康检查 | 通过 |
 | AI 健康检查 | 通过 |
 | 模拟 AI 入库链路 | 通过 |
 
-## 5 项目结构
+## 6 项目结构
 
 ```text
 emoji-classroom-checker/
 ├─ .github/workflows/      CI 流水线
 ├─ ai-service/             AI 推理服务
-├─ docs/                   实验文档
+├─ docs/                   实验正式文档
+│  └─ 工作过程产出/       演示与人工操作辅助材料
 ├─ public/                 Web 客户端
 ├─ server/                 后端与数据库
 ├─ tests/                  Node 自动化测试

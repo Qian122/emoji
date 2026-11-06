@@ -124,12 +124,6 @@ docker compose down
 | AI_CAMERA_INDEX | 摄像头编号 | 默认 0 |
 | AI_DETECTOR_BACKENDS | 人脸检测器顺序 | 默认 `opencv,mtcnn`，快速检测失败后自动使用高灵敏度检测器 |
 | AI_FACE_EXPAND_PERCENTAGE | 人脸区域扩展比例 | 默认 15，保留更多面部边缘信息 |
-| AI_TEMPORAL_WINDOW | 连续帧融合窗口 | 默认 3 帧，减少单帧跳变 |
-| AI_TEMPORAL_TTL_SECONDS | 连续帧有效期 | 默认 15 秒，超时后重新收集 |
-| AI_MIN_TEMPORAL_AGREEMENT | 连续帧最低一致率 | 默认 0.67 |
-| AI_MIN_EMOTION_MARGIN | 第一、第二候选最小差值 | 默认 0.12 |
-| AI_CONFUSED_MIN_MARGIN | 困惑候选最小差值 | 默认 0.20，降低 `fear` 映射造成的误判 |
-| AI_THRESHOLD_* | 各类别独立阈值 | 开心默认 0.68，困惑默认 0.75，其余主要类别默认 0.70 左右 |
 
 `AI_THRESHOLD_*` 的完整变量为 `AI_THRESHOLD_HAPPY`、`AI_THRESHOLD_NEUTRAL`、`AI_THRESHOLD_CONFUSED`、`AI_THRESHOLD_DISGUST`、`AI_THRESHOLD_ANGRY`、`AI_THRESHOLD_SAD` 和 `AI_THRESHOLD_SURPRISED`。阈值修改后必须重启 AI 进程才能生效。
 
@@ -238,9 +232,7 @@ npm run test:ai
 | AI 返回 502 | 后端未启动或地址错误 | 检查 `AI_BACKEND_URL` 和后端健康接口 |
 | AI 摄像头返回 503 | 缺少 OpenCV/DeepFace | 安装完整依赖并使用 Python 3.11 |
 | 画面中有人但提示未检测到 | 人脸过小、逆光、侧脸或旧进程未加载新配置 | 确认 `.env` 使用 `opencv,mtcnn`，重启 AI 服务并让面部占画面较大区域 |
-| 一直显示收集连续帧 | 同一设备尚未取得 3 个有效人脸帧，或两帧间隔超过 TTL | 保持正面和稳定光线，连续检测；检查 `AI_TEMPORAL_WINDOW` 与 `AI_TEMPORAL_TTL_SECONDS` |
-| 返回 AMBIGUOUS 或 UNSTABLE | 候选概率接近或连续帧主类别不一致 | 保持表情与姿态稳定；该结果按设计不入库 |
-| 返回 LOW_IMAGE_QUALITY | 画面极暗、过曝或严重模糊 | 调整补光、曝光、距离和摄像头固定方式 |
+| 检测结果被过滤 | 当前单帧主情绪置信度低于统一阈值 | 改善光照和面部角度，或在确认风险后调整 `AI_CONFIDENCE_THRESHOLD` |
 | 摄像头被占用 | 其他程序正在使用设备 | 关闭相机、会议软件后重试 |
 | Docker 数据丢失 | 使用了 `down -v` | 从备份恢复命名卷数据 |
 | CSV 中文乱码 | 打开方式忽略 BOM | 使用 Excel 导入 UTF-8 或检查导出文件 |
@@ -252,7 +244,7 @@ npm run test:ai
 | 密钥配置 | JWT、AI 令牌和管理员注册码使用独立配置 |
 | 配置隔离 | `.env` 不进入源码仓库和提交包 |
 | 服务健康 | Node 和 AI 健康接口返回 UP |
-| 自动化测试 | Node 16 项、AI 9 项测试全部通过 |
+| 自动化测试 | Node 16 项、AI 6 项测试全部通过 |
 | 角色流程 | 学生、教师、管理员流程均可完成 |
 | 视频推理 | 摄像头采样、情绪映射、阈值过滤和入库正常 |
 | 容器部署 | Compose 服务、网络和数据卷运行正常 |
