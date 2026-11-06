@@ -5,6 +5,11 @@ const state = {
   page: 'home',
   socket: null,
   activeRealtimeSession: null,
+  cameraStream: null,
+  cameraDetectionActive: false,
+  cameraDetectionTimer: null,
+  cameraBusy: false,
+  cameraMetrics: { samples: 0, accepted: 0, filtered: 0 },
   statisticsFilters: { course: '', className: '', from: '', to: '' }
 };
 
@@ -15,8 +20,8 @@ const EMOJIS = {
 const ROLE_NAMES = { STUDENT: '学生', TEACHER: '教师', ADMIN: '管理员' };
 const NAV = {
   STUDENT: [['home', '⌂', '情绪打卡'], ['history', '◷', '我的历史'], ['profile', '○', '账号设置']],
-  TEACHER: [['home', '⌂', '教学看板'], ['history', '◷', '课堂记录'], ['statistics', '▥', '统计分析'], ['profile', '○', '账号设置']],
-  ADMIN: [['home', '⌂', '管理概览'], ['realtime', '◉', '实时看板'], ['users', '♙', '用户管理'], ['sessions', '▣', '课程与排课'], ['history', '◷', '情绪数据'], ['statistics', '▥', '统计与导出'], ['profile', '○', '账号设置']]
+  TEACHER: [['home', '⌂', '教学看板'], ['camera', '◉', 'AI 摄像头'], ['history', '◷', '课堂记录'], ['statistics', '▥', '统计分析'], ['profile', '○', '账号设置']],
+  ADMIN: [['home', '⌂', '管理概览'], ['realtime', '◉', '实时看板'], ['camera', '▦', 'AI 摄像头'], ['users', '♙', '用户管理'], ['sessions', '▣', '课程与排课'], ['history', '◷', '情绪数据'], ['statistics', '▥', '统计与导出'], ['profile', '○', '账号设置']]
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -53,6 +58,7 @@ function saveSession(data) {
 }
 
 function logout(showMessage = true) {
+  stopCameraPreview();
   if (state.socket) state.socket.disconnect();
   localStorage.removeItem('emoji_token');
   localStorage.removeItem('emoji_user');
@@ -127,6 +133,7 @@ function renderNav() {
 }
 
 async function navigate(page) {
+  if (state.page === 'camera' && page !== 'camera') stopCameraPreview();
   if (state.activeRealtimeSession && state.socket) state.socket.emit('dashboard:leave', state.activeRealtimeSession);
   state.activeRealtimeSession = null;
   state.page = page;
@@ -139,6 +146,7 @@ async function navigate(page) {
   try {
     if (page === 'home') return state.user.role === 'STUDENT' ? renderStudentHome() : state.user.role === 'TEACHER' ? renderTeacherDashboard() : renderAdminHome();
     if (page === 'realtime' && state.user.role === 'ADMIN') return renderTeacherDashboard();
+    if (page === 'camera' && ['TEACHER', 'ADMIN'].includes(state.user.role)) return renderAiCamera();
     if (page === 'history') return renderHistory();
     if (page === 'users') return renderUsers();
     if (page === 'sessions') return renderSessions();
@@ -200,6 +208,167 @@ async function renderTeacherDashboard() {
     </div>
     <div class="card section-gap"><div class="card-head"><div><h3>15 分钟情绪趋势</h3><small>按分钟展示各类情绪数量</small></div><small>更新于 ${formatDate(data.generatedAt)}</small></div>${renderTrendChart(data.trend, 'minute')}</div>`;
   $('#dashboardSession').onchange = () => renderTeacherDashboard();
+}
+
+async function renderAiCamera() {
+  const selected = Number($('#cameraSession')?.value) || state.sessions[0]?.id;
+  const health = await api('/api/ai/health').catch(() => null);
+  stopCameraPreview();
+  state.cameraMetrics = { samples: 0, accepted: 0, filtered: 0 };
+  $('#content').innerHTML = `
+    <div class="grid two camera-layout">
+      <div class="card camera-card">
+        <div class="card-head"><div><h3>摄像头实时预览</h3><small>画面仅在浏览器内存中处理，不保存照片或视频</small></div><span id="cameraPermissionBadge" class="badge gray">未打开</span></div>
+        <div class="camera-stage">
+          <video id="cameraPreview" autoplay muted playsinline></video>
+          <div id="cameraPlaceholder" class="camera-placeholder"><strong>摄像头尚未打开</strong><span>点击下方按钮并允许浏览器访问摄像头</span></div>
+        </div>
+        <canvas id="cameraCanvas" class="hidden"></canvas>
+        <div class="camera-actions">
+          <button id="startCameraPreview" class="secondary-button">打开摄像头预览</button>
+          <button id="analyzeCameraFrame" class="secondary-button" disabled>检测当前画面</button>
+          <button id="startCameraDetection" class="primary-button" disabled>开始连续检测</button>
+          <button id="stopCameraPreview" class="danger-button" disabled>停止并释放</button>
+        </div>
+      </div>
+      <div class="card camera-control-card">
+        <div class="card-head"><div><h3>AI 检测控制</h3><small>连续检测默认每 3 秒采样一次</small></div><span class="badge ${health?.visionAvailable ? 'green' : 'gray'}">${health?.visionAvailable ? '视觉服务可用' : '视觉服务不可用'}</span></div>
+        <div><label for="cameraSession">写入课堂</label><select id="cameraSession">${sessionOptions(selected)}</select></div>
+        <div id="cameraStatus" class="camera-status">等待打开摄像头。</div>
+        <div class="grid three camera-metrics">
+          <div><small>已检测</small><strong id="cameraSamples">0</strong></div>
+          <div><small>已入库</small><strong id="cameraAccepted">0</strong></div>
+          <div><small>已过滤</small><strong id="cameraFiltered">0</strong></div>
+        </div>
+        <div id="cameraResult" class="camera-result"><div class="empty">尚无检测结果</div></div>
+        <p class="helper-text camera-privacy">摄像头权限由浏览器控制；停止或离开本页时会立即关闭视频轨道。只有超过置信度阈值的情绪结果会匿名写入数据库。</p>
+      </div>
+    </div>`;
+
+  $('#startCameraPreview').onclick = startCameraPreview;
+  $('#analyzeCameraFrame').onclick = () => analyzeCameraFrame(false);
+  $('#startCameraDetection').onclick = startContinuousCameraDetection;
+  $('#stopCameraPreview').onclick = () => stopCameraPreview(true);
+  if (!state.sessions.length) {
+    setCameraStatus('当前账号没有可写入的课堂。', 'error');
+    $('#startCameraDetection').disabled = true;
+  }
+}
+
+async function startCameraPreview() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setCameraStatus('当前浏览器不支持摄像头访问，请使用最新版 Chrome、Edge 或 Firefox。', 'error');
+    return;
+  }
+  stopCameraPreview();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false });
+    state.cameraStream = stream;
+    const video = $('#cameraPreview');
+    video.srcObject = stream;
+    await video.play();
+    $('#cameraPlaceholder').classList.add('hidden');
+    $('#cameraPermissionBadge').textContent = '预览中';
+    $('#cameraPermissionBadge').className = 'badge green';
+    $('#analyzeCameraFrame').disabled = false;
+    $('#startCameraDetection').disabled = !state.sessions.length;
+    $('#stopCameraPreview').disabled = false;
+    setCameraStatus('摄像头已打开，可以检测当前画面或启动连续检测。', 'success');
+  } catch (error) {
+    setCameraStatus(error.name === 'NotAllowedError' ? '摄像头权限被拒绝，请在浏览器地址栏中允许访问。' : `无法打开摄像头：${error.message}`, 'error');
+  }
+}
+
+function stopCameraDetection() {
+  state.cameraDetectionActive = false;
+  clearTimeout(state.cameraDetectionTimer);
+  state.cameraDetectionTimer = null;
+  const button = $('#startCameraDetection');
+  if (button) { button.disabled = !state.cameraStream || !state.sessions.length; button.textContent = '开始连续检测'; }
+}
+
+function stopCameraPreview(showFeedback = false) {
+  stopCameraDetection();
+  state.cameraStream?.getTracks().forEach((track) => track.stop());
+  state.cameraStream = null;
+  state.cameraBusy = false;
+  const video = $('#cameraPreview');
+  if (video) video.srcObject = null;
+  $('#cameraPlaceholder')?.classList.remove('hidden');
+  if ($('#cameraPermissionBadge')) { $('#cameraPermissionBadge').textContent = '已关闭'; $('#cameraPermissionBadge').className = 'badge gray'; }
+  if ($('#analyzeCameraFrame')) $('#analyzeCameraFrame').disabled = true;
+  if ($('#startCameraDetection')) $('#startCameraDetection').disabled = true;
+  if ($('#stopCameraPreview')) $('#stopCameraPreview').disabled = true;
+  if (showFeedback) setCameraStatus('摄像头已关闭并释放，其他应用现在可以使用摄像头。', 'success');
+}
+
+async function startContinuousCameraDetection() {
+  if (!state.cameraStream || state.cameraDetectionActive) return;
+  state.cameraDetectionActive = true;
+  $('#startCameraDetection').disabled = true;
+  $('#startCameraDetection').textContent = '连续检测中…';
+  setCameraStatus('连续检测已启动，请保持面部完整入镜。', 'success');
+  await analyzeCameraFrame(true);
+}
+
+async function analyzeCameraFrame(scheduleNext) {
+  if (!state.cameraStream || state.cameraBusy) return;
+  const video = $('#cameraPreview');
+  if (!video?.videoWidth || !video.videoHeight) {
+    setCameraStatus('摄像头画面尚未就绪，请稍后重试。', 'error');
+    return;
+  }
+  state.cameraBusy = true;
+  try {
+    const canvas = $('#cameraCanvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const result = await api('/api/ai/analyze-frame', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: Number($('#cameraSession').value),
+        imageBase64: canvas.toDataURL('image/jpeg', 0.82),
+        deviceId: 'web-camera-preview'
+      })
+    });
+    const accepted = result.accepted || [];
+    const filtered = result.filtered || [];
+    state.cameraMetrics.samples += 1;
+    state.cameraMetrics.accepted += accepted.length;
+    state.cameraMetrics.filtered += filtered.length;
+    renderCameraMetrics();
+    if (!result.faces) {
+      setCameraStatus('当前画面未检测到人脸，请正对镜头并保证光线充足。');
+      $('#cameraResult').innerHTML = '<div class="empty">未检测到人脸</div>';
+    } else if (accepted.length) {
+      const latest = accepted[0];
+      setCameraStatus(`检测成功：${emojiLabel(latest.emojiType)}，置信度 ${Math.round(latest.confidence * 100)}%，已写入数据库。`, 'success');
+      $('#cameraResult').innerHTML = accepted.map((item) => `<div class="camera-result-item"><span class="camera-result-emoji">${EMOJIS[item.emojiType]?.[0] || '🙂'}</span><div><strong>${escapeHtml(item.rawEmotion)} → ${escapeHtml(EMOJIS[item.emojiType]?.[1] || item.emojiType)}</strong><small>置信度 ${Math.round(item.confidence * 100)}% · 已入库</small></div></div>`).join('');
+    } else {
+      const latest = filtered[0];
+      setCameraStatus(`检测到人脸，但置信度 ${latest ? Math.round(latest.confidence * 100) : 0}% 低于阈值 ${Math.round((result.threshold || 0.65) * 100)}%，未入库。`);
+      $('#cameraResult').innerHTML = filtered.map((item) => `<div class="camera-result-item muted"><span class="camera-result-emoji">${EMOJIS[item.emojiType]?.[0] || '🙂'}</span><div><strong>${escapeHtml(item.rawEmotion)} → ${escapeHtml(EMOJIS[item.emojiType]?.[1] || item.emojiType)}</strong><small>置信度 ${Math.round(item.confidence * 100)}% · 已过滤</small></div></div>`).join('');
+    }
+  } catch (error) {
+    setCameraStatus(error.message, 'error');
+  } finally {
+    state.cameraBusy = false;
+    if (scheduleNext && state.cameraDetectionActive) state.cameraDetectionTimer = setTimeout(() => analyzeCameraFrame(true), 3000);
+  }
+}
+
+function renderCameraMetrics() {
+  if ($('#cameraSamples')) $('#cameraSamples').textContent = state.cameraMetrics.samples;
+  if ($('#cameraAccepted')) $('#cameraAccepted').textContent = state.cameraMetrics.accepted;
+  if ($('#cameraFiltered')) $('#cameraFiltered').textContent = state.cameraMetrics.filtered;
+}
+
+function setCameraStatus(message, type = '') {
+  const node = $('#cameraStatus');
+  if (!node) return;
+  node.textContent = message;
+  node.className = `camera-status ${type}`;
 }
 
 async function renderAdminHome() {

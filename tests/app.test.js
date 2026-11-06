@@ -6,8 +6,8 @@ const { io: createSocketClient } = require('socket.io-client');
 const { createApp, sanitizeCsvCell } = require('../server/app');
 const { attachRealtime } = require('../server/realtime');
 
-async function fixture() {
-  const app = createApp({ dbPath: ':memory:', seed: true, jwtSecret: 'test-secret', aiToken: 'test-ai-token', adminRegistrationCode: 'test-admin-code' });
+async function fixture(overrides = {}) {
+  const app = createApp({ dbPath: ':memory:', seed: true, jwtSecret: 'test-secret', aiToken: 'test-ai-token', adminRegistrationCode: 'test-admin-code', ...overrides });
   const server = http.createServer(app);
   const io = attachRealtime(server, app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -265,6 +265,43 @@ test('AI 接口校验令牌、阈值并写入匿名记录', async () => {
   } finally { await ctx.close(); }
 });
 
+test('教师可通过受保护代理执行浏览器摄像头 AI 分析', async () => {
+  const calls = [];
+  const aiFetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith('/health')) return new Response(JSON.stringify({ status: 'UP', visionAvailable: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ faces: 1, accepted: [{ emojiType: 'HAPPY', confidence: 0.91 }], filtered: [], threshold: 0.65 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const ctx = await fixture({ aiFetch, aiServiceUrl: 'http://ai.test' });
+  try {
+    const teacherToken = await ctx.login('teacher', 'Teacher123!');
+    const health = await ctx.request('/api/ai/health', { headers: ctx.auth(teacherToken) });
+    assert.equal(health.response.status, 200);
+    assert.equal(health.body.data.visionAvailable, true);
+    const sessions = await ctx.request('/api/sessions', { headers: ctx.auth(teacherToken) });
+    const sessionId = sessions.body.data[0].id;
+    const analyzed = await ctx.request('/api/ai/analyze-frame', {
+      method: 'POST', headers: ctx.auth(teacherToken), body: JSON.stringify({ sessionId, imageBase64: 'data:image/jpeg;base64,AAAA', deviceId: 'web-camera-preview' })
+    });
+    assert.equal(analyzed.response.status, 200);
+    assert.equal(analyzed.body.data.accepted[0].emojiType, 'HAPPY');
+    const forwarded = JSON.parse(calls.find((call) => call.url.endsWith('/analyze-frame')).options.body);
+    assert.equal(forwarded.sessionId, sessionId);
+    assert.equal(forwarded.deviceId, 'web-camera-preview');
+  } finally { await ctx.close(); }
+});
+
+test('学生不能使用浏览器摄像头 AI 代理', async () => {
+  const ctx = await fixture({ aiFetch: async () => new Response('{}', { status: 200 }) });
+  try {
+    const token = await ctx.login('student', 'Student123!');
+    const denied = await ctx.request('/api/ai/analyze-frame', {
+      method: 'POST', headers: ctx.auth(token), body: JSON.stringify({ sessionId: 1, imageBase64: 'data:image/jpeg;base64,AAAA' })
+    });
+    assert.equal(denied.response.status, 403);
+  } finally { await ctx.close(); }
+});
+
 test('CSV 导出遵循筛选条件并防止公式注入', async () => {
   const ctx = await fixture();
   try {
@@ -305,6 +342,8 @@ test('OpenAPI 文档覆盖新增管理接口', async () => {
     assert.ok(result.body.paths['/admin/sessions/{id}/schedule'].get);
     assert.ok(result.body.paths['/admin/users/{id}/status'].patch);
     assert.ok(result.body.paths['/admin/courses'].post);
+    assert.ok(result.body.paths['/ai/health'].get);
+    assert.ok(result.body.paths['/ai/analyze-frame'].post);
   } finally { await ctx.close(); }
 });
 

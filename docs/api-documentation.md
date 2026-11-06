@@ -327,6 +327,28 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 
 低于阈值时返回 200 和 `accepted=false`；通过阈值后返回 201。匿名记录的 `user_id` 为 NULL。
 
+### 9.2 Web AI 健康检查
+
+- 方法：`GET /api/ai/health`
+- 权限：教师、管理员 JWT
+- 说明：由后端代理查询 AI 服务状态，供 Web 摄像头页面判断视觉依赖是否可用。
+
+### 9.3 Web 摄像头帧分析
+
+- 方法：`POST /api/ai/analyze-frame`
+- 权限：教师、管理员 JWT，并校验课堂归属
+- 说明：浏览器显示实时预览，将当前帧以 Base64 发送到后端；后端代理至 AI 服务，原始画面不落盘。
+
+```json
+{
+  "sessionId": 1,
+  "imageBase64": "data:image/jpeg;base64,...",
+  "deviceId": "web-camera-preview"
+}
+```
+
+返回检测到的人脸数量、已入库结果、低置信度过滤结果和当前阈值。学生调用返回 403，AI 服务不可用时返回 502。
+
 ## 10 AI 服务接口
 
 ### 10.1 AI 健康检查

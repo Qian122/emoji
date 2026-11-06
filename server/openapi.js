@@ -46,6 +46,14 @@ const openapi = {
           recordedAt: { type: 'string', format: 'date-time' }, deviceId: { type: 'string' }, anonymous: { type: 'boolean', default: true }, userId: { type: 'integer' }
         }
       },
+      AiFrameInput: {
+        type: 'object', required: ['sessionId', 'imageBase64'],
+        properties: {
+          sessionId: { type: 'integer', minimum: 1 },
+          imageBase64: { type: 'string', description: 'JPEG/PNG Data URL 或纯 Base64 字符串，最大约 2 MB' },
+          deviceId: { type: 'string', maxLength: 100 }
+        }
+      },
       CourseInput: { type: 'object', required: ['name', 'teacherId'], properties: { name: { type: 'string' }, teacherId: { type: 'integer' } } },
       SessionInput: {
         type: 'object', required: ['courseId', 'startsAt', 'endsAt', 'classroom', 'className'],
@@ -88,6 +96,8 @@ const openapi = {
     '/admin/dashboard/realtime': { get: { tags: ['看板'], summary: '最近 15 分钟实时统计与趋势', security: bearer, parameters: [{ name: 'sessionId', in: 'query', required: true, schema: { type: 'integer' } }], responses: { 200: response('看板数据'), 403: response('课堂越权') } } },
     '/admin/statistics': { get: { tags: ['统计'], summary: '按课程、班级、时间段查询分布、课堂样本和趋势', security: bearer, parameters: [{ $ref: '#/components/parameters/CourseFilter' }, { $ref: '#/components/parameters/ClassFilter' }, { $ref: '#/components/parameters/FromFilter' }, { $ref: '#/components/parameters/ToFilter' }], responses: { 200: response('多维统计'), 400: response('筛选条件无效') } } },
     '/admin/emoji/export': { get: { tags: ['统计'], summary: '按当前筛选条件导出安全 CSV', security: bearer, parameters: [{ $ref: '#/components/parameters/CourseFilter' }, { $ref: '#/components/parameters/ClassFilter' }, { $ref: '#/components/parameters/FromFilter' }, { $ref: '#/components/parameters/ToFilter' }], responses: { 200: { description: 'UTF-8 CSV', content: { 'text/csv': { schema: { type: 'string' } } } } } } },
+    '/ai/health': { get: { tags: ['AI'], summary: '教师或管理员检查 AI 服务状态', security: bearer, responses: { 200: response('AI 服务状态'), 403: response('角色无权访问'), 502: response('AI 服务不可用') } } },
+    '/ai/analyze-frame': { post: { tags: ['AI'], summary: '教师或管理员提交浏览器摄像头帧进行分析', security: bearer, requestBody: { required: true, content: jsonContent({ $ref: '#/components/schemas/AiFrameInput' }) }, responses: { 200: response('画面分析完成'), 403: response('角色或课堂权限不足'), 502: response('AI 服务不可用') } } },
     '/ai/emoji-results': { post: { tags: ['AI'], summary: 'AI 服务提交匿名推理结果', security: [{ aiToken: [] }], parameters: [{ name: 'X-Confidence-Threshold', in: 'header', schema: { type: 'number', minimum: 0, maximum: 1 } }], requestBody: { required: true, content: jsonContent({ $ref: '#/components/schemas/AiEmojiInput' }) }, responses: { 201: response('结果已入库'), 200: response('低置信度结果被过滤'), 401: response('AI 令牌错误') } } }
   }
 };

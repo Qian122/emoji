@@ -28,6 +28,7 @@
 | 12 | 要求覆盖矩阵 | [requirements-coverage.md](requirements-coverage.md) | 指导书要求与实现、测试证据对应关系 |
 | 13 | 版本控制记录 | [version-control-record.md](version-control-record.md) | 仓库、分支、提交规范和版本标签 |
 | 14 | 演示脚本 | [demo-script.md](demo-script.md) | 系统答辩演示流程 |
+| 15 | 完整人工测试操作手册 | [manual-test-guide.md](manual-test-guide.md) | 三角色、AI、摄像头、安全、部署和提交验收步骤 |
 
 ## 3 源码与工程材料
 
@@ -46,7 +47,7 @@
 | 项目 | 结果 |
 |---|---|
 | JavaScript/Python 静态检查 | 通过 |
-| Node 集成测试 | 14/14 通过 |
+| Node 集成测试 | 16/16 通过 |
 | AI 单元测试 | 5/5 通过 |
 | 后端健康检查 | 通过 |
 | AI 健康检查 | 通过 |

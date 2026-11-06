@@ -7,7 +7,7 @@
 | 学生 | 注册、登录、改密、发送 emoji、查看个人历史 | 已完成 | Web 客户端、认证接口、`/api/emoji`、`/api/emoji/history`、T01-T03 |
 | 教师 | 注册、登录、改密、查看本人课堂历史与统计、实时看板 | 已完成 | 教师页面、历史/统计/看板接口、Socket.IO、T05-T07、T14 |
 | 管理员 | 注册、登录、用户与 emoji 数据、统计、CSV、排课、看板 | 已完成 | 管理页面、管理员接口、T04、T06、T09、T10、T13 |
-| AI 服务 | 摄像头分析、映射 emoji、写入数据库 | 已完成 | `ai-service/main.py`、A01-A05、T08、摄像头验收 |
+| AI 服务 | Web 摄像头预览、摄像头分析、映射 emoji、写入数据库 | 已完成 | `public/app.js`、`ai-service/main.py`、A01-A05、T08、T15-T16、摄像头验收 |
 
 ## 2 必做功能
 
@@ -45,6 +45,6 @@
 | 消息队列异步 AI | 扩展项 | AI 服务采用带重试的 REST 入库 |
 | MCP 工具服务 | 扩展项 | 预留为智能体接入方向 |
 | Docker Compose | 已完成 | 后端、AI 服务和数据卷配置齐全 |
-| CI 流水线 | 已完成 | GitHub Actions 自动运行静态检查、14 项 Node 测试和 5 项 AI 测试 |
+| CI 流水线 | 已完成 | GitHub Actions 自动运行静态检查、16 项 Node 测试和 5 项 AI 测试 |
 
 系统扩展到多实例或高并发部署时，可增加 Redis/RabbitMQ 消息队列；接入智能体时，可将查询统计能力封装为 MCP 工具。

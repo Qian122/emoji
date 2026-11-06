@@ -74,6 +74,7 @@ docker compose down
 | JWT_SECRET | JWT 签名密钥 | 使用长随机值 |
 | JWT_EXPIRES_IN | JWT 有效期 | 建议 8h 或更短 |
 | AI_SERVICE_TOKEN | AI 独立令牌 | 与 JWT 密钥不同 |
+| AI_SERVICE_URL | 后端访问 AI 服务的地址 | 本机为 127.0.0.1:8000，容器内为 ai-service:8000 |
 | ADMIN_REGISTRATION_CODE | 管理员注册码 | 使用长随机值 |
 | SEED_DEMO_DATA | 是否生成演示数据 | 正式环境设为 false |
 | AI_BACKEND_URL | AI 调用的后端地址 | 容器内为 backend:3000 |
@@ -188,7 +189,7 @@ npm run test:ai
 | 密钥配置 | JWT、AI 令牌和管理员注册码使用独立配置 |
 | 配置隔离 | `.env` 不进入源码仓库和提交包 |
 | 服务健康 | Node 和 AI 健康接口返回 UP |
-| 自动化测试 | Node 14 项、AI 5 项测试全部通过 |
+| 自动化测试 | Node 16 项、AI 5 项测试全部通过 |
 | 角色流程 | 学生、教师、管理员流程均可完成 |
 | 视频推理 | 摄像头采样、情绪映射、阈值过滤和入库正常 |
 | 容器部署 | Compose 服务、网络和数据卷运行正常 |

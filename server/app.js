@@ -22,8 +22,10 @@ function createApp(options = {}) {
     jwtSecret: options.jwtSecret || process.env.JWT_SECRET || 'development-only-secret-change-me',
     jwtExpiresIn: options.jwtExpiresIn || process.env.JWT_EXPIRES_IN || '8h',
     aiToken: options.aiToken || process.env.AI_SERVICE_TOKEN || 'development-ai-token',
+    aiServiceUrl: options.aiServiceUrl || process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000',
     adminRegistrationCode: options.adminRegistrationCode || process.env.ADMIN_REGISTRATION_CODE || 'change-me'
   };
+  const aiFetch = options.aiFetch || fetch;
 
   const db = openDatabase(config.dbPath, { seed: config.seed });
   const app = express();
@@ -380,6 +382,42 @@ function createApp(options = {}) {
     `).all(...optionParams).map((row) => row.className);
     return ok(res, { ...stats, bySession, trend, filters, options: { courses, classes } });
   });
+
+  app.post('/api/ai/analyze-frame', authenticate, allowRoles('TEACHER', 'ADMIN'), asyncRoute(async (req, res) => {
+    const parsed = z.object({
+      sessionId: z.number().int().positive(),
+      imageBase64: z.string().min(20).max(2_000_000),
+      deviceId: z.string().min(1).max(100).optional()
+    }).safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, 'VALIDATION_ERROR', '课堂、摄像头画面或设备标识无效。');
+    if (!canAccessSession(req.user, parsed.data.sessionId)) return fail(res, 403, 'SESSION_FORBIDDEN', '无权为该课堂启动 AI 检测。');
+    let response;
+    try {
+      response = await aiFetch(`${config.aiServiceUrl.replace(/\/$/, '')}/analyze-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed.data),
+        signal: AbortSignal.timeout(180_000)
+      });
+    } catch {
+      return fail(res, 502, 'AI_SERVICE_UNAVAILABLE', 'AI 推理服务暂时不可用。');
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return fail(res, response.status, 'AI_ANALYSIS_FAILED', payload.detail || 'AI 画面分析失败。');
+    return ok(res, payload);
+  }));
+
+  app.get('/api/ai/health', authenticate, allowRoles('TEACHER', 'ADMIN'), asyncRoute(async (req, res) => {
+    let response;
+    try {
+      response = await aiFetch(`${config.aiServiceUrl.replace(/\/$/, '')}/health`, { signal: AbortSignal.timeout(5_000) });
+    } catch {
+      return fail(res, 502, 'AI_SERVICE_UNAVAILABLE', 'AI 推理服务暂时不可用。');
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return fail(res, 502, 'AI_SERVICE_UNAVAILABLE', 'AI 推理服务健康检查失败。');
+    return ok(res, payload);
+  }));
 
   app.get('/api/admin/emoji/export', authenticate, allowRoles('ADMIN'), (req, res) => {
     const filters = parseAnalyticsFilters(req.query);

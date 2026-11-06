@@ -8,7 +8,7 @@
 - 教师：查看本人课堂、历史记录、最近 15 分钟实时看板、六类情绪趋势和多维统计。
 - 管理员：用户启停、课程课堂创建、排课名单回显与替换、全局情绪、课程/班级/时间筛选、筛选 CSV 导出。
 - 后端：JWT、bcrypt 密码哈希、RBAC、课堂归属校验、统一响应、SQLite 持久化、审计日志、Socket.IO。
-- AI：摄像头帧采样、DeepFace 情绪分类、六类 emoji 映射、置信度过滤、匿名入库、失败重试。
+- AI：Web 实时摄像头预览、单帧/连续检测、DeepFace 情绪分类、六类 emoji 映射、置信度过滤、匿名入库、失败重试。
 - 安全与隐私：AI 独立令牌、参数化 SQL、输入校验、认证限流、CSV 注入防护、不保存原始人脸图像或视频。
 - 工程化：Docker Compose 一键部署、GitHub Actions CI、OpenAPI、需求规格、设计、数据库脚本、测试报告、用户手册。
 
@@ -78,7 +78,7 @@ npm run test:ai
 npm audit
 ```
 
-Node 端 14 项测试覆盖认证改密、管理员注册码、三角色 RBAC、课程课堂排课、教师历史与数据隔离、多维筛选、Socket.IO 实时推送、AI 入库、筛选导出和账号停用。AI 端 4 项测试覆盖健康检查、阈值过滤、模拟提交和视觉依赖提示。
+Node 端 16 项测试覆盖认证改密、管理员注册码、三角色 RBAC、课程课堂排课、教师历史与数据隔离、多维筛选、Socket.IO 实时推送、AI 入库、Web 摄像头受保护代理、筛选导出和账号停用。AI 端 5 项测试覆盖健康检查、阈值过滤、模拟提交、视觉依赖提示和无人脸过滤。
 
 GitHub Actions 会在推送和拉取请求时使用 Node.js 24 与 Python 3.11 自动执行依赖安装、静态检查、Node 集成测试和 AI 单元测试。
 
@@ -105,7 +105,7 @@ emoji-classroom-checker/
 | 情绪 | `POST /api/emoji`、`GET /api/emoji/history`、`GET /api/emoji/statistics` |
 | 看板 | `GET /api/admin/dashboard/realtime`、Socket.IO `emoji:new` |
 | 统计 | `GET /api/admin/statistics`、`GET /api/admin/emoji/export` |
-| AI | `POST /api/ai/emoji-results` |
+| AI | `GET /api/ai/health`、`POST /api/ai/analyze-frame`、`POST /api/ai/emoji-results` |
 
 完整契约以运行后的 `/api/docs` 和 `/api/openapi.json` 为准。
 
@@ -117,6 +117,7 @@ emoji-classroom-checker/
 - [数据库脚本](docs/database-schema.sql)
 - [测试用例说明书](docs/test-cases.md)
 - [测试报告](docs/test-report.md)
+- [完整人工测试操作手册](docs/manual-test-guide.md)
 - [用户手册](docs/user-manual.md)
 - [部署说明](docs/deployment.md)
 - [最终验收检查表](docs/acceptance-checklist.md)

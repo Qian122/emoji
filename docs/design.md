@@ -12,7 +12,10 @@ flowchart LR
   Service --> Repo[SQLite Repository]
   Repo --> DB[(SQLite)]
   AI[FastAPI AI 服务] -->|X-AI-Token| Controller
-  Camera[摄像头或上传帧] --> AI
+  Camera[摄像头] --> Browser[Web 实时预览]
+  Browser -->|JWT 受保护帧| API
+  API --> AI
+  Upload[后台摄像头或上传帧] --> AI
   AI --> Model[OpenCV DeepFace]
   Controller --> Realtime
 ```
