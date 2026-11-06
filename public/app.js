@@ -262,7 +262,7 @@ async function startCameraPreview() {
   }
   stopCameraPreview();
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false });
     state.cameraStream = stream;
     const video = $('#cameraPreview');
     video.srcObject = stream;
@@ -321,26 +321,34 @@ async function analyzeCameraFrame(scheduleNext) {
   state.cameraBusy = true;
   try {
     const canvas = $('#cameraCanvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const result = await api('/api/ai/analyze-frame', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: Number($('#cameraSession').value),
-        imageBase64: canvas.toDataURL('image/jpeg', 0.82),
-        deviceId: 'web-camera-preview'
-      })
-    });
+    let result = null;
+    let attempts = 0;
+    while (attempts < 3 && state.cameraStream) {
+      attempts += 1;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      result = await api('/api/ai/analyze-frame', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: Number($('#cameraSession').value),
+          imageBase64: canvas.toDataURL('image/jpeg', 0.9),
+          deviceId: 'web-camera-preview'
+        })
+      });
+      if (result.faces || attempts === 3) break;
+      setCameraStatus(`第 ${attempts} 帧未检测到人脸，正在自动重试…`);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
     const accepted = result.accepted || [];
     const filtered = result.filtered || [];
-    state.cameraMetrics.samples += 1;
+    state.cameraMetrics.samples += attempts;
     state.cameraMetrics.accepted += accepted.length;
     state.cameraMetrics.filtered += filtered.length;
     renderCameraMetrics();
     if (!result.faces) {
-      setCameraStatus('当前画面未检测到人脸，请正对镜头并保证光线充足。');
-      $('#cameraResult').innerHTML = '<div class="empty">未检测到人脸</div>';
+      setCameraStatus('连续 3 帧均未检测到人脸，请正对镜头、靠近一些并保证光线充足。');
+      $('#cameraResult').innerHTML = '<div class="empty">连续 3 帧未检测到人脸</div>';
     } else if (accepted.length) {
       const latest = accepted[0];
       setCameraStatus(`检测成功：${emojiLabel(latest.emojiType)}，置信度 ${Math.round(latest.confidence * 100)}%，已写入数据库。`, 'success');

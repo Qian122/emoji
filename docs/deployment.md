@@ -81,6 +81,8 @@ docker compose down
 | AI_CONFIDENCE_THRESHOLD | 置信度阈值 | 默认 0.65 |
 | AI_SAMPLE_INTERVAL_SECONDS | 采样间隔 | 默认 3 秒 |
 | AI_CAMERA_INDEX | 摄像头编号 | 默认 0 |
+| AI_DETECTOR_BACKENDS | 人脸检测器顺序 | 默认 `opencv,mtcnn`，快速检测失败后自动使用高灵敏度检测器 |
+| AI_FACE_EXPAND_PERCENTAGE | 人脸区域扩展比例 | 默认 15，保留更多面部边缘信息 |
 
 可用 PowerShell 生成随机密钥：
 
@@ -178,6 +180,7 @@ npm run test:ai
 | AI 返回 401 | 两端 AI 令牌不一致 | 对照 `.env` 和 AI 进程环境变量 |
 | AI 返回 502 | 后端未启动或地址错误 | 检查 `AI_BACKEND_URL` 和后端健康接口 |
 | AI 摄像头返回 503 | 缺少 OpenCV/DeepFace | 安装完整依赖并使用 Python 3.11 |
+| 画面中有人但提示未检测到 | 人脸过小、逆光、侧脸或旧进程未加载新配置 | 确认 `.env` 使用 `opencv,mtcnn`，重启 AI 服务并让面部占画面较大区域 |
 | 摄像头被占用 | 其他程序正在使用设备 | 关闭相机、会议软件后重试 |
 | Docker 数据丢失 | 使用了 `down -v` | 从备份恢复命名卷数据 |
 | CSV 中文乱码 | 打开方式忽略 BOM | 使用 Excel 导入 UTF-8 或检查导出文件 |
@@ -189,7 +192,7 @@ npm run test:ai
 | 密钥配置 | JWT、AI 令牌和管理员注册码使用独立配置 |
 | 配置隔离 | `.env` 不进入源码仓库和提交包 |
 | 服务健康 | Node 和 AI 健康接口返回 UP |
-| 自动化测试 | Node 16 项、AI 5 项测试全部通过 |
+| 自动化测试 | Node 16 项、AI 6 项测试全部通过 |
 | 角色流程 | 学生、教师、管理员流程均可完成 |
 | 视频推理 | 摄像头采样、情绪映射、阈值过滤和入库正常 |
 | 容器部署 | Compose 服务、网络和数据卷运行正常 |

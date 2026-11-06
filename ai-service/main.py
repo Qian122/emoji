@@ -50,6 +50,12 @@ AI_TOKEN = config_value("AI_SERVICE_TOKEN", "development-ai-token")
 CONFIDENCE_THRESHOLD = float(config_value("AI_CONFIDENCE_THRESHOLD", "0.65"))
 SAMPLE_INTERVAL_SECONDS = float(config_value("AI_SAMPLE_INTERVAL_SECONDS", "3"))
 CAMERA_INDEX = int(config_value("AI_CAMERA_INDEX", "0"))
+FACE_DETECTOR_BACKENDS = tuple(
+    backend.strip()
+    for backend in config_value("AI_DETECTOR_BACKENDS", "opencv,mtcnn").split(",")
+    if backend.strip()
+)
+FACE_EXPAND_PERCENTAGE = int(config_value("AI_FACE_EXPAND_PERCENTAGE", "15"))
 
 EMOTION_MAP = {
     "happy": "HAPPY",
@@ -102,6 +108,18 @@ def decode_image(data: str):
     return image
 
 
+def prepare_fallback_image(image):
+    """放大小分辨率画面，帮助兜底检测器发现远距离和小尺寸人脸。"""
+    if cv2 is None or not hasattr(image, "shape") or len(image.shape) < 2:
+        return image
+    height, width = image.shape[:2]
+    longest_edge = max(height, width)
+    if longest_edge <= 0 or longest_edge >= 1280:
+        return image
+    scale = min(2.0, 1280 / longest_edge)
+    return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+
 def infer_emotions(image) -> list[dict]:
     require_vision_dependencies()
     try:
@@ -109,22 +127,39 @@ def infer_emotions(image) -> list[dict]:
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="DeepFace 尚未安装，请使用 /simulate 验证数据链路。") from exc
 
-    try:
-        results = DeepFace.analyze(
-            img_path=image,
-            actions=["emotion"],
-            enforce_detection=True,
-            detector_backend="opencv",
-            silent=True,
-        )
-    except ValueError as exc:
-        if "Face could not be detected" in str(exc):
-            return []
-        logger.exception("emotion inference failed")
-        raise HTTPException(status_code=422, detail="未能从当前画面得到有效情绪结果。") from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("emotion inference failed")
-        raise HTTPException(status_code=422, detail="未能从当前画面得到有效情绪结果。") from exc
+    results = None
+    detector_backend = None
+    last_error = None
+    fallback_image = None
+    for index, backend in enumerate(FACE_DETECTOR_BACKENDS):
+        try:
+            if index > 0 and fallback_image is None:
+                fallback_image = prepare_fallback_image(image)
+            results = DeepFace.analyze(
+                img_path=fallback_image if index > 0 else image,
+                actions=["emotion"],
+                enforce_detection=True,
+                detector_backend=backend,
+                align=True,
+                expand_percentage=FACE_EXPAND_PERCENTAGE,
+                silent=True,
+            )
+            detector_backend = backend
+            break
+        except ValueError as exc:
+            if "Face could not be detected" in str(exc):
+                logger.info("face not detected with %s, trying fallback", backend)
+                continue
+            last_error = exc
+            logger.warning("detector %s failed: %s", backend, exc)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            logger.warning("detector %s failed: %s", backend, exc)
+
+    if results is None:
+        if last_error is not None:
+            logger.error("all configured face detectors failed: %s", last_error)
+        return []
 
     if isinstance(results, dict):
         results = [results]
@@ -138,6 +173,7 @@ def infer_emotions(image) -> list[dict]:
             "emojiType": EMOTION_MAP.get(dominant, "CALM"),
             "confidence": round(float(scores[dominant]) / 100, 4),
             "rawEmotion": dominant,
+            "detectorBackend": detector_backend,
         })
     return normalized
 
@@ -208,6 +244,8 @@ async def health() -> dict:
         "threshold": CONFIDENCE_THRESHOLD,
         "cameraRunning": bool(camera_task and not camera_task.done()),
         "visionAvailable": cv2 is not None and np is not None,
+        "detectorBackends": list(FACE_DETECTOR_BACKENDS),
+        "faceExpandPercentage": FACE_EXPAND_PERCENTAGE,
     }
 
 
