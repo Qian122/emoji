@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#5b5bd6">
+  <title>课堂情绪检查器</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <main id="authView" class="auth-shell">
+    <section class="brand-panel">
+      <div class="brand-mark">☺</div>
+      <p class="eyebrow">EMOJI CLASSROOM CHECKER</p>
+      <h1>让每一次课堂感受<br>都被及时看见</h1>
+      <p class="lead">学生用一个表情快速反馈，教师实时掌握课堂状态，管理员统一完成排课、统计与导出。</p>
+      <div class="feature-row">
+        <span>匿名 AI 分析</span><span>实时看板</span><span>隐私优先</span>
+      </div>
+    </section>
+
+    <section class="auth-card">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-auth-tab="login">登录</button>
+        <button class="tab" data-auth-tab="register">注册</button>
+      </div>
+
+      <form id="loginForm" class="form-stack">
+        <div><label for="loginUsername">用户名</label><input id="loginUsername" autocomplete="username" value="student" required></div>
+        <div><label for="loginPassword">密码</label><input id="loginPassword" type="password" autocomplete="current-password" value="Student123!" required></div>
+        <button class="primary-button" type="submit">进入系统 <span>→</span></button>
+        <p class="demo-note">演示账号：student / teacher / admin<br>密码分别为 Student123! / Teacher123! / Admin123!</p>
+      </form>
+
+      <form id="registerForm" class="form-stack hidden">
+        <div><label for="regUsername">用户名</label><input id="regUsername" minlength="3" required></div>
+        <div><label for="regEmail">邮箱</label><input id="regEmail" type="email" required></div>
+        <div><label for="regPassword">密码</label><input id="regPassword" type="password" minlength="8" placeholder="至少 8 位，含大小写字母与数字" required></div>
+        <div><label for="regRole">角色</label><select id="regRole"><option value="STUDENT">学生</option><option value="TEACHER">教师</option><option value="ADMIN">管理员</option></select></div>
+        <div id="adminCodeWrap" class="hidden"><label for="regAdminCode">管理员注册码</label><input id="regAdminCode" type="password"></div>
+        <button class="primary-button" type="submit">创建账号 <span>→</span></button>
+      </form>
+    </section>
+  </main>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="side-brand"><span class="brand-mark small">☺</span><div><strong>课堂情绪</strong><small>Emoji Checker</small></div></div>
+      <nav id="mainNav" class="nav-list"></nav>
+      <div class="side-footer">
+        <div class="user-chip"><span id="userAvatar">S</span><div><strong id="userName">用户</strong><small id="userRole">学生</small></div></div>
+        <button id="logoutButton" class="ghost-button">退出登录</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <button id="menuButton" class="menu-button" aria-label="打开菜单">☰</button>
+        <div><p class="eyebrow" id="pageEyebrow">DASHBOARD</p><h2 id="pageTitle">课堂情绪</h2></div>
+        <div class="status-pill"><span></span>系统在线</div>
+      </header>
+      <div id="content" class="content"></div>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
