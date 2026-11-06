@@ -1,4 +1,6 @@
 import asyncio
+import sys
+import types
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -32,6 +34,27 @@ class AiServiceTests(unittest.TestCase):
         with self.assertRaises(main.HTTPException) as context:
             main.require_vision_dependencies()
         self.assertEqual(context.exception.status_code, 503)
+
+    def test_inference_requires_a_detected_face(self):
+        calls = []
+
+        class FakeDeepFace:
+            @staticmethod
+            def analyze(**kwargs):
+                calls.append(kwargs)
+                raise ValueError("Face could not be detected in numpy array.")
+
+        fake_module = types.ModuleType("deepface")
+        fake_module.DeepFace = FakeDeepFace
+        with (
+            patch.dict(sys.modules, {"deepface": fake_module}),
+            patch.object(main, "cv2", object()),
+            patch.object(main, "np", object()),
+        ):
+            result = main.infer_emotions(object())
+
+        self.assertEqual(result, [])
+        self.assertTrue(calls[0]["enforce_detection"])
 
 
 if __name__ == "__main__":

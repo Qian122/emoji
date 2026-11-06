@@ -113,10 +113,15 @@ def infer_emotions(image) -> list[dict]:
         results = DeepFace.analyze(
             img_path=image,
             actions=["emotion"],
-            enforce_detection=False,
+            enforce_detection=True,
             detector_backend="opencv",
             silent=True,
         )
+    except ValueError as exc:
+        if "Face could not be detected" in str(exc):
+            return []
+        logger.exception("emotion inference failed")
+        raise HTTPException(status_code=422, detail="未能从当前画面得到有效情绪结果。") from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("emotion inference failed")
         raise HTTPException(status_code=422, detail="未能从当前画面得到有效情绪结果。") from exc
