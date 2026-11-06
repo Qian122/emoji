@@ -2,6 +2,16 @@
 
 ## 1 本机部署
 
+### 1.0 目录与端口规划
+
+| 组件 | 默认地址 | 进程 | 持久化内容 |
+|---|---|---|---|
+| Web 与业务后端 | `http://localhost:3000` | Node.js | `data/emoji-checker.db` |
+| Swagger | `http://localhost:3000/api/docs` | Node.js | 无 |
+| AI 服务 | `http://localhost:8000` | Python/Uvicorn | 默认无原始图像或视频 |
+
+后端必须先于 AI 服务启动。浏览器摄像头模式由浏览器读取设备并逐帧代理到 AI 服务；后台摄像头模式由 AI 进程直接读取摄像头编号。
+
 ### 1.1 后端和网页
 
 环境要求：Node.js 22.5 或更高版本。
@@ -44,6 +54,35 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/simulate `
   -Body '{"sessionId":1,"emojiType":"HAPPY","confidence":0.92}'
 ```
 
+完整视觉依赖首次安装和首次模型加载时间较长。启动后以 `/health` 中的 `visionAvailable`、`detectorBackends` 和 `cameraRunning` 判断实际状态，而不是只依据进程是否存在。
+
+### 1.3 推荐启动顺序
+
+终端一启动后端：
+
+```powershell
+Set-Location D:\Program\software\emoji-classroom-checker
+npm start
+```
+
+终端二启动 AI：
+
+```powershell
+Set-Location D:\Program\software\emoji-classroom-checker
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn main:app --app-dir ai-service --host 127.0.0.1 --port 8000
+```
+
+终端三执行健康检查和测试：
+
+```powershell
+Invoke-RestMethod http://localhost:3000/api/health
+Invoke-RestMethod http://localhost:8000/health
+npm run check
+npm test
+npm run test:ai
+```
+
 ## 2 Docker Compose 部署
 
 安装并启动 Docker Desktop 后执行：
@@ -56,6 +95,8 @@ docker compose up --build -d
 docker compose ps
 docker compose logs -f
 ```
+
+Compose 默认将 3000 和 8000 映射到宿主机，并使用 `emoji-data` 命名卷保存 SQLite。容器内 AI 服务是否能直接访问宿主机摄像头取决于操作系统、Docker Desktop 和设备映射能力；Windows 演示环境优先使用浏览器摄像头预览，或在宿主机直接运行 AI 服务。
 
 停止服务：
 
@@ -90,6 +131,8 @@ docker compose down
 | AI_CONFUSED_MIN_MARGIN | 困惑候选最小差值 | 默认 0.20，降低 `fear` 映射造成的误判 |
 | AI_THRESHOLD_* | 各类别独立阈值 | 开心默认 0.68，困惑默认 0.75，其余主要类别默认 0.70 左右 |
 
+`AI_THRESHOLD_*` 的完整变量为 `AI_THRESHOLD_HAPPY`、`AI_THRESHOLD_NEUTRAL`、`AI_THRESHOLD_CONFUSED`、`AI_THRESHOLD_DISGUST`、`AI_THRESHOLD_ANGRY`、`AI_THRESHOLD_SAD` 和 `AI_THRESHOLD_SURPRISED`。阈值修改后必须重启 AI 进程才能生效。
+
 可用 PowerShell 生成随机密钥：
 
 ```powershell
@@ -101,6 +144,14 @@ docker compose down
 本机部署备份：停止后端后复制 `data/emoji-checker.db`。WAL 模式运行时不要只复制主文件，应先正常停止服务，或同时处理 `-wal` 和 `-shm` 文件。
 
 容器部署可使用临时容器将 `emoji-data` 卷导出到宿主机。恢复前必须停止应用，避免同时写入。
+
+本机恢复步骤：
+
+1. 停止 Node 后端，确认没有进程继续写入数据库；
+2. 将当前数据库文件复制到独立备份目录；
+3. 用备份文件替换 `DB_PATH` 指向的数据库；
+4. 启动后端并访问健康检查；
+5. 登录三种角色，检查用户、课堂、排课和历史记录。
 
 ## 5 上线安全检查
 
@@ -187,6 +238,9 @@ npm run test:ai
 | AI 返回 502 | 后端未启动或地址错误 | 检查 `AI_BACKEND_URL` 和后端健康接口 |
 | AI 摄像头返回 503 | 缺少 OpenCV/DeepFace | 安装完整依赖并使用 Python 3.11 |
 | 画面中有人但提示未检测到 | 人脸过小、逆光、侧脸或旧进程未加载新配置 | 确认 `.env` 使用 `opencv,mtcnn`，重启 AI 服务并让面部占画面较大区域 |
+| 一直显示收集连续帧 | 同一设备尚未取得 3 个有效人脸帧，或两帧间隔超过 TTL | 保持正面和稳定光线，连续检测；检查 `AI_TEMPORAL_WINDOW` 与 `AI_TEMPORAL_TTL_SECONDS` |
+| 返回 AMBIGUOUS 或 UNSTABLE | 候选概率接近或连续帧主类别不一致 | 保持表情与姿态稳定；该结果按设计不入库 |
+| 返回 LOW_IMAGE_QUALITY | 画面极暗、过曝或严重模糊 | 调整补光、曝光、距离和摄像头固定方式 |
 | 摄像头被占用 | 其他程序正在使用设备 | 关闭相机、会议软件后重试 |
 | Docker 数据丢失 | 使用了 `down -v` | 从备份恢复命名卷数据 |
 | CSV 中文乱码 | 打开方式忽略 BOM | 使用 Excel 导入 UTF-8 或检查导出文件 |

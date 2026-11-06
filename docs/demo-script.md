@@ -50,7 +50,7 @@
 
 1. 打开 `/api/docs` 展示 Swagger。
 2. 运行 `npm test`，展示 12 项通过。
-3. 运行 `npm run test:ai`，展示 4 项通过。
+3. 运行 `npm run test:ai`，展示 9 项通过。
 4. 简述 bcrypt、JWT、RBAC、参数化 SQL、AI 独立令牌和审计日志。
 
 ## 6:50 至 7:30 总结

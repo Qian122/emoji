@@ -2,32 +2,76 @@
 
 ## 1 总体架构
 
-系统采用 C/S 与 B/S 结合的修改版 MVC。浏览器承担学生、教师和管理员客户端，Python 服务承担 AI 推理，Express 统一承载业务 API 和实时通信。
+系统采用 B/S 为主、独立 AI 服务协同的修改版 MVC 架构。学生、教师和管理员统一使用浏览器客户端；Express 提供 REST API、认证授权、业务规则和 Socket.IO 实时通信；SQLite 持久化业务数据；FastAPI 负责摄像头帧的人脸检测与表情分类。AI 服务不直接访问数据库，所有结果必须经过后端令牌、阈值和课堂有效性校验后入库。
+
+### 1.1 系统上下文图
 
 ```mermaid
 flowchart LR
-  Browser[浏览器客户端\n学生 教师 管理员] -->|REST JSON JWT| Controller[Express Controller]
-  Browser <-->|Socket.IO| Realtime[实时通信模块]
-  Controller --> Service[业务校验与权限 Service]
-  Service --> Repo[SQLite Repository]
-  Repo --> DB[(SQLite)]
-  AI[FastAPI AI 服务] -->|X-AI-Token| Controller
-  Camera[摄像头] --> Browser[Web 实时预览]
-  Browser -->|JWT 受保护帧| API
-  API --> AI
-  Upload[后台摄像头或上传帧] --> AI
-  AI --> Model[OpenCV DeepFace]
-  Controller --> Realtime
+  Student[学生] -->|注册 登录 改密\n提交与查看个人 emoji| Web[Web 客户端]
+  Teacher[教师] -->|课堂历史 统计\n实时看板 AI 摄像头| Web
+  Admin[管理员] -->|用户 课程 课堂 排课\n统计 导出 看板| Web
+  Web <-->|HTTPS REST + JWT\nSocket.IO| Backend[业务后端]
+  BrowserCamera[浏览器摄像头] -->|内存帧与实时预览| Web
+  ClassroomCamera[后台课堂摄像头] -->|视频采样帧| AI[AI 推理服务]
+  Backend -->|受保护的帧代理| AI
+  AI -->|X-AI-Token + 匿名结果| Backend
+  Backend <--> DB[(SQLite)]
 ```
 
-### 1.1 修改版 MVC 映射
+### 1.2 分层组件架构
 
-- View：`public/index.html` 和 `public/styles.css`。
-- ViewModel/Presenter：`public/app.js` 中的状态、导航、表单、图表和 API 调用。
-- Controller：`server/app.js` 中的 Express 路由。
-- Service：认证、RBAC、课堂归属、参数校验、统计和导出规则。
-- Repository：预编译 SQLite SQL 和事务。
-- AI 服务：独立 FastAPI 进程，通过统一 API 契约写入后端。
+```mermaid
+flowchart TB
+  subgraph Client[表示层]
+    View[HTML CSS View]
+    Presenter[app.js ViewModel / Presenter]
+    Preview[摄像头预览与 SVG 图表]
+    View --> Presenter
+    Preview --> Presenter
+  end
+
+  subgraph Server[业务后端]
+    Controller[Express Controller]
+    Auth[JWT RBAC 与输入校验]
+    Domain[课堂 排课 Emoji 统计 导出 Service]
+    Realtime[Socket.IO 实时服务]
+    Repository[SQLite Repository]
+    Controller --> Auth
+    Auth --> Domain
+    Domain --> Repository
+    Domain --> Realtime
+  end
+
+  subgraph Inference[AI 推理子系统]
+    FastAPI[FastAPI 接口]
+    Quality[图像质量评估]
+    Detect[OpenCV / MTCNN 人脸检测]
+    Emotion[DeepFace 情绪分类]
+    Fusion[多帧概率融合与过滤]
+    FastAPI --> Quality --> Detect --> Emotion --> Fusion
+  end
+
+  Presenter -->|REST + JWT| Controller
+  Presenter <-->|Socket.IO| Realtime
+  Controller -->|浏览器帧代理| FastAPI
+  Fusion -->|匿名 AI 结果| Controller
+  Repository --> Database[(SQLite 文件)]
+```
+
+### 1.3 修改版 MVC 映射
+
+| 层次 | 实现 | 职责 |
+|---|---|---|
+| View | `public/index.html`、`public/styles.css` | 页面结构、表单、表格、状态卡片、摄像头画面和统计图容器 |
+| ViewModel/Presenter | `public/app.js` | 保存登录态和页面状态，调用 API，渲染角色界面、SVG 图表和摄像头反馈 |
+| Controller | `server/app.js` 中的 Express 路由 | 接收请求、解析参数、调用认证及业务规则、组织统一响应 |
+| Service | `server/app.js` 中的认证、权限、统计、导出和课堂归属逻辑 | 执行 RBAC、排课校验、教师数据边界、聚合统计和安全导出 |
+| Repository | `server/db.js` 与参数化 SQL | 建表、事务、索引、查询和持久化 |
+| Realtime Adapter | `server/realtime.js` | JWT 握手、课堂房间授权和 `emoji:new` 广播 |
+| AI Service | `ai-service/main.py` | 解码帧、质量检查、人脸检测、情绪分类、多帧融合、阈值过滤和结果提交 |
+
+修改版 MVC 的核心变化是加入 ViewModel/Presenter、Service、Repository、实时适配器和独立 AI 服务。这样既保留 MVC 的职责分离，又能处理单页界面状态、实时消息和计算密集型 AI 推理。
 
 ## 2 领域模型与 ER 图
 
@@ -63,6 +107,7 @@ erDiagram
     text ends_at
     text classroom
     text class_name
+    text created_at
   }
   SCHEDULE_USER {
     integer id PK
@@ -92,6 +137,19 @@ erDiagram
 
 数据库建表语句见 [database-schema.sql](database-schema.sql)。
 
+### 2.1 实体关系与基数说明
+
+| 关系 | 基数 | 业务含义 | 完整性规则 |
+|---|---|---|---|
+| User—Course | 1:N | 一名教师可以负责多门课程，每门课程只有一名教师 | 创建课程时校验目标用户为启用教师 |
+| Course—ClassSession | 1:N | 一门课程可在不同时间、班级和教室开设多次课堂 | 删除课程级联删除所属课堂 |
+| User—ClassSession | M:N | 学生可参加多个课堂，课堂可包含多个学生 | 通过 `schedule_users` 关联，课堂与学生组合唯一 |
+| ClassSession—EmojiRecord | 1:N | 每条手动或 AI 情绪记录属于一个课堂 | 删除课堂级联删除记录 |
+| User—EmojiRecord | 0..1:N | 手动记录关联学生；匿名 AI 记录不关联用户 | 删除用户时 `user_id` 置空以保留聚合数据 |
+| User—AuditLog | 0..1:N | 登录、改密和管理操作可关联操作者 | 用户删除后日志操作者置空 |
+
+`schedule_users` 是排课关联实体，不把学生列表直接存入课堂字段；`emoji_records` 统一承载手动与 AI 数据，通过 `source`、`confidence` 和可空 `user_id` 区分来源与匿名性。
+
 ## 3 核心交互设计
 
 ### 3.1 学生提交与教师实时刷新
@@ -118,17 +176,65 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant C as 摄像头
+  participant W as Web 或后台采样器
   participant AI as FastAPI
   participant M as DeepFace
   participant API as Express
   participant DB as SQLite
-  C->>AI: 采样帧
-  AI->>M: 人脸与情绪分析
-  M-->>AI: 情绪和置信度
-  AI->>AI: 阈值过滤与 emoji 映射
+  C->>W: 采样内存帧
+  W->>AI: POST /analyze-frame
+  AI->>AI: 亮度与清晰度检查
+  AI->>M: OpenCV 检测，失败时 MTCNN 兜底
+  M-->>AI: 七类情绪概率
+  AI->>AI: 连续 3 个有效帧概率融合
+  AI->>AI: 类别阈值、候选差值和一致性过滤
   AI->>API: POST /api/ai/emoji-results
   API->>API: 校验 X-AI-Token
+  API->>API: 再次校验课堂、类型和置信度
   API->>DB: 匿名 AI 记录入库
+  API-->>W: accepted / filtered / pending
+```
+
+### 3.3 管理员创建课堂并安排名单
+
+```mermaid
+sequenceDiagram
+  participant A as 管理员浏览器
+  participant API as Express API
+  participant DB as SQLite
+  A->>API: POST /api/admin/courses
+  API->>DB: 校验启用教师并创建课程
+  A->>API: POST /api/admin/sessions
+  API->>DB: 校验课程与起止时间并创建课堂
+  A->>API: POST /api/admin/sessions/{id}/schedule
+  API->>DB: 校验全部用户均为启用学生
+  API->>DB: BEGIN + 删除旧名单 + 插入新名单 + COMMIT
+  API-->>A: scheduledCount
+```
+
+排课接口采用“完整替换”语义。任何无效学生都会使操作在写入前失败；事务保证不会出现只删除旧名单但未写入新名单的中间状态。
+
+### 3.4 浏览器摄像头预览与帧代理
+
+```mermaid
+sequenceDiagram
+  participant U as 教师或管理员
+  participant B as 浏览器
+  participant API as Express
+  participant AI as FastAPI
+  U->>B: 允许摄像头并选择课堂
+  B->>B: getUserMedia 预览，不落盘
+  loop 单次检测或约每 3 秒
+    B->>B: Canvas 压缩当前帧
+    B->>API: POST /api/ai/analyze-frame + JWT
+    API->>API: 校验角色与课堂归属
+    API->>AI: POST /analyze-frame
+    AI-->>API: faces / pending / accepted / filtered / quality
+    API-->>B: 转发分析结果
+    B->>B: 显示前三概率、阈值、差值和过滤原因
+  end
+  U->>B: 停止并释放
+  B->>B: stop MediaStream tracks
 ```
 
 ## 4 权限设计
@@ -215,14 +321,33 @@ JWT 每次请求都重新查询账号状态，因此管理员停用账号后，�
 | `emoji_records` | `id` | emoji、来源检查；AI 必须有置信度 | 保存手动和 AI 情绪记录 |
 | `audit_logs` | `id` | 操作者可空 | 保存关键安全与管理操作 |
 
-### 11.2 索引设计
+### 11.2 字段级数据字典
+
+| 表 | 字段 | 类型与约束 | 说明 |
+|---|---|---|---|
+| `users` | `username`、`email` | TEXT，非空，忽略大小写唯一 | 登录名与联系邮箱 |
+| `users` | `password_hash` | TEXT，非空 | bcrypt 成本因子 12 的哈希，不保存明文密码 |
+| `users` | `role` | STUDENT / TEACHER / ADMIN | RBAC 角色 |
+| `users` | `status` | ACTIVE / DISABLED | 停用后登录和已有 JWT 均不可用 |
+| `courses` | `teacher_id` | INTEGER，外键，非空 | 课程负责教师 |
+| `class_sessions` | `starts_at`、`ends_at` | ISO 8601 TEXT，非空 | 课堂时间范围，业务层保证结束晚于开始 |
+| `class_sessions` | `classroom`、`class_name` | TEXT，非空 | 教室和班级维度 |
+| `schedule_users` | `session_id`、`user_id` | 外键，组合唯一 | 课堂与学生的多对多关联 |
+| `emoji_records` | `emoji_type` | 六值枚举检查 | HAPPY、CALM、CONFUSED、SAD、ANGRY、SURPRISED |
+| `emoji_records` | `source` | MANUAL / AI | 记录来源 |
+| `emoji_records` | `confidence` | REAL，可空 | AI 记录必须非空；手动记录为空 |
+| `emoji_records` | `device_id` | TEXT，可空 | 浏览器或摄像头逻辑标识，不保存图像 |
+| `audit_logs` | `action`、`details` | TEXT | 操作名称与 JSON 详情 |
+| `audit_logs` | `ip_address` | TEXT，可空 | 请求来源地址 |
+
+### 11.3 索引设计
 
 - `idx_emoji_session_time(session_id, recorded_at)`：支持课堂实时看板和趋势查询。
 - `idx_emoji_user_time(user_id, recorded_at)`：支持学生个人历史。
 - `idx_sessions_course_time(course_id, starts_at)`：支持课程及时间范围筛选。
 - 用户名和邮箱唯一约束同时承担快速登录、查重功能。
 
-### 11.3 完整性与删除规则
+### 11.4 完整性与删除规则
 
 - 课程教师必须引用现有用户，并由业务层保证其角色是教师。
 - 删除课堂时，排课和 emoji 记录通过级联规则一并处理。
@@ -256,16 +381,38 @@ JWT 每次请求都重新查询账号状态，因此管理员停用账号后，�
 |---|---|
 | happy | HAPPY |
 | neutral | CALM |
-| fear、disgust | CONFUSED |
+| fear | CONFUSED |
+| disgust、angry | ANGRY |
 | sad | SAD |
-| angry | ANGRY |
 | surprise | SURPRISED |
 
-映射完成后先进行置信度过滤，再提交后端。后端再次执行阈值校验，避免绕过 AI 服务直接写入低质量结果。
+DeepFace 没有独立“困惑”类别，因此 `fear → CONFUSED` 只是课堂语境下的启发式候选映射，使用更高的类别阈值和候选差值要求。它不能证明学生真实困惑，也不能替代学生主动提交。
+
+每个有效人脸帧保留七类归一化概率。系统按 `sessionId + deviceId` 建立短期缓冲区，收集连续 3 个有效人脸帧后对各类别概率取均值，再计算主类别、第二候选、二者差值和帧间一致率。依次执行以下过滤：
+
+1. 极暗、过曝或严重模糊时返回 `LOW_IMAGE_QUALITY`；
+2. 未收集满连续帧时返回 `pending`，不写入数据库；
+3. 低于基础阈值与类别阈值的较大者时返回 `LOW_CONFIDENCE`；
+4. 第一、第二候选差值不足时返回 `AMBIGUOUS`；
+5. 多帧主类别一致率不足时返回 `UNSTABLE`；
+6. 通过全部条件后映射 emoji，经 AI 独立令牌提交后端；后端再次执行阈值校验。
 
 ### 13.3 CSV 安全导出
 
 导出使用与统计接口相同的筛选构造逻辑。所有以 `=`、`+`、`-`、`@` 开头的文本在前方增加单引号，避免 Excel 将其当作公式执行。文件使用 UTF-8 BOM，保证中文环境兼容。
+
+### 13.4 异常处理与降级
+
+| 场景 | 处理方式 | 对其他功能的影响 |
+|---|---|---|
+| JWT 缺失、失效或账号停用 | 返回 401，前端清理登录状态 | 不影响公开健康检查和登录 |
+| 角色或课堂范围越权 | 返回 403，不执行数据库写入 | 合法用户流程正常 |
+| 参数、时间或枚举错误 | Zod/Pydantic 返回 400 | 不产生部分数据 |
+| AI 服务不可用 | Web 帧代理返回 502 | 手动 emoji、历史、统计仍可用 |
+| 未安装 OpenCV/DeepFace | AI 视觉接口返回 503 | `/health` 与 `/simulate` 仍可用 |
+| 无人脸或帧数不足 | 返回空结果或 `pending` | 不写入错误记录 |
+| 后端暂时不可用 | AI 最多重试 3 次并指数退避 | 原始帧不持久化 |
+| 摄像头已被占用 | 后台任务无法打开设备或返回冲突 | 浏览器可释放设备后重试 |
 
 ## 14 部署拓扑
 
@@ -286,10 +433,10 @@ flowchart TB
 | 设计项 | 实现文件 | 验证方式 |
 |---|---|---|
 | MVC 与前端状态 | `public/index.html`、`public/app.js` | 三角色人工流程 |
-| REST 控制器与业务规则 | `server/app.js` | T01-T14 |
+| REST 控制器与业务规则 | `server/app.js` | T01-T16 |
 | 数据模型和索引 | `server/db.js`、`docs/database-schema.sql` | 内存数据库测试、持久化检查 |
 | 实时课堂房间 | `server/realtime.js` | T07 |
 | OpenAPI | `server/openapi.js` | T11、Swagger 页面 |
-| AI 推理 | `ai-service/main.py` | A01-A09、现场摄像头测试 |
-| 容器部署 | `Dockerfile`、`docker-compose.yml` | Docker 现场启动 |
+| AI 推理 | `ai-service/main.py` | A01-A09、真实摄像头链路验证 |
+| 容器部署 | `Dockerfile`、`docker-compose.yml` | Compose 配置解析与部署用例 TC-26 |
 | CI | `.github/workflows/ci.yml` | GitHub Actions 执行记录 |

@@ -73,6 +73,37 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 | 429 | 登录或注册请求过于频繁 |
 | 500 | 服务内部错误 |
 
+### 3.1 接口总览与认证矩阵
+
+| 分组 | 方法与路径 | 调用角色 | 认证方式 |
+|---|---|---|---|
+| 系统 | `GET /health`、`GET /openapi.json` | 公开 | 无 |
+| 认证 | `POST /auth/register`、`POST /auth/login` | 公开 | 无，认证端点限流 |
+| 认证 | `PUT /auth/password`、`GET /users/me` | 学生、教师、管理员 | Bearer JWT |
+| 课堂 | `GET /sessions` | 学生、教师、管理员 | Bearer JWT，按角色裁剪 |
+| Emoji | `POST /emoji` | 学生 | Bearer JWT + 排课关系 |
+| Emoji | `GET /emoji/history`、`GET /emoji/statistics` | 学生、教师、管理员 | Bearer JWT + 数据范围校验 |
+| 管理 | `/admin/users`、`/admin/courses`、`/admin/sessions/*` | 管理员 | Bearer JWT + ADMIN |
+| 看板统计 | `GET /admin/dashboard/realtime`、`GET /admin/statistics` | 教师、管理员 | Bearer JWT + 课堂归属 |
+| 导出 | `GET /admin/emoji/export` | 管理员 | Bearer JWT + ADMIN |
+| Web AI | `GET /ai/health`、`POST /ai/analyze-frame` | 教师、管理员 | Bearer JWT + 课堂归属 |
+| AI 入库 | `POST /ai/emoji-results` | AI 服务 | `X-AI-Token` |
+
+### 3.2 主要错误代码
+
+| 错误代码 | 触发条件 |
+|---|---|
+| `VALIDATION_ERROR` | 请求体字段、枚举、长度或时间格式无效 |
+| `AUTH_REQUIRED` / `INVALID_TOKEN` | 缺少 JWT 或令牌无效、过期 |
+| `ACCOUNT_UNAVAILABLE` / `ACCOUNT_DISABLED` | 账号已停用 |
+| `FORBIDDEN` / `SESSION_FORBIDDEN` | 角色无权调用或课堂超出数据范围 |
+| `USER_EXISTS` | 用户名或邮箱已存在 |
+| `ADMIN_CODE_INVALID` | 管理员注册码错误 |
+| `SESSION_NOT_FOUND` / `COURSE_NOT_FOUND` | 课堂或课程不存在 |
+| `AI_TOKEN_INVALID` | AI 独立令牌错误 |
+| `AI_SERVICE_UNAVAILABLE` | 后端无法连接 FastAPI 服务 |
+| `AI_ANALYSIS_FAILED` | FastAPI 返回图像解析、依赖或推理错误 |
+
 ## 4 系统接口
 
 ### 4.1 后端健康检查
@@ -197,6 +228,21 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 - 查询参数：可选 `sessionId`
 - 返回：总样本量、六类情绪数量、百分比和 AI 平均置信度。
 
+```json
+{
+  "success": true,
+  "data": {
+    "total": 8,
+    "counts": [
+      { "emojiType": "HAPPY", "count": 3, "percentage": 37.5, "averageConfidence": 0.91 },
+      { "emojiType": "CALM", "count": 2, "percentage": 25.0, "averageConfidence": null }
+    ]
+  }
+}
+```
+
+实际响应固定包含六种 `emojiType`，无样本类别的 `count` 与 `percentage` 为 0。
+
 ## 7 管理员接口
 
 ### 7.1 查询用户
@@ -283,6 +329,16 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 - 教师数据边界：课堂必须属于当前教师。
 - 返回内容：最近 15 分钟总样本量、主导情绪、需关注反馈、AI 样本、分布、分钟趋势和最新动态。
 
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `sessionId` | integer | 当前课堂编号 |
+| `windowMinutes` | integer | 实时窗口，固定为 15 |
+| `stats.total` | integer | 窗口内总记录数 |
+| `stats.counts` | array | 六类数量、占比和 AI 平均置信度 |
+| `trend` | array | `minute`、`emojiType`、`count` 分钟桶 |
+| `latest` | array | 最近 20 条类型、来源、置信度和时间 |
+| `generatedAt` | date-time | 服务端生成时间 |
+
 ### 8.2 多维统计
 
 - 方法：`GET /admin/statistics`
@@ -297,6 +353,8 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 | to | `2026-11-30T23:59:59.999Z` | 结束时间 |
 
 可以组合使用。`from` 晚于 `to` 时返回 400。教师可选项和结果自动限制在本人课程。
+
+响应包含 `total`、`counts`、`bySession`、`trend`、`filters` 和 `options`。其中 `bySession` 返回课堂、课程、班级、开始时间和样本数，无记录课堂仍显示为 0；`options.courses` 与 `options.classes` 用于生成当前角色可见的筛选选项。
 
 ### 8.3 导出 CSV
 
@@ -329,13 +387,13 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 
 ### 9.2 Web AI 健康检查
 
-- 方法：`GET /api/ai/health`
+- 方法：`GET /ai/health`
 - 权限：教师、管理员 JWT
 - 说明：由后端代理查询 AI 服务状态，供 Web 摄像头页面判断视觉依赖是否可用。
 
 ### 9.3 Web 摄像头帧分析
 
-- 方法：`POST /api/ai/analyze-frame`
+- 方法：`POST /ai/analyze-frame`
 - 权限：教师、管理员 JWT，并校验课堂归属
 - 说明：浏览器显示实时预览，将当前帧以 Base64 发送到后端；后端代理至 AI 服务，原始画面不落盘。
 
@@ -349,12 +407,48 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 
 返回检测到的人脸数量、连续帧收集状态、融合后的情绪概率、第一与第二候选差值、图像质量、已入库结果和过滤原因。过滤原因包括低置信度、候选接近、连续帧不稳定和图像质量过低。学生调用返回 403，AI 服务不可用时返回 502。
 
+连续帧收集中的典型响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "faces": 1,
+    "accepted": [],
+    "filtered": [],
+    "pending": { "framesCollected": 2, "framesRequired": 3 },
+    "quality": { "brightness": 112.4, "sharpness": 94.8, "warnings": [] },
+    "threshold": 0.65,
+    "temporalWindow": 3
+  }
+}
+```
+
+融合完成后，`accepted` 或 `filtered` 中的对象包含以下判定字段：
+
+| 字段 | 说明 |
+|---|---|
+| `emojiType` | 映射后的六类 emoji |
+| `confidence`、`rawEmotion` | 融合后主类别概率和 DeepFace 原始类别 |
+| `runnerUpEmotion`、`runnerUpConfidence` | 第二候选及概率 |
+| `margin` | 第一、第二候选概率差 |
+| `emotionScores` | DeepFace 七类归一化概率 |
+| `detectorBackend` | 实际成功的 `opencv` 或 `mtcnn` 检测器 |
+| `temporalFrames`、`agreement` | 融合帧数和帧间主类别一致率 |
+| `confidenceThreshold`、`marginThreshold` | 本次判定实际采用的阈值 |
+| `backend` | 仅 `accepted` 包含，表示后端入库响应 |
+| `reason` | 仅 `filtered` 包含，表示过滤原因 |
+
+`reason` 可取 `LOW_CONFIDENCE`、`AMBIGUOUS`、`UNSTABLE` 或 `LOW_IMAGE_QUALITY`。无人脸时 `faces=0`，结果数组为空，不写入数据库。
+
 ## 10 AI 服务接口
 
 ### 10.1 AI 健康检查
 
 - 方法：`GET http://localhost:8000/health`
 - 返回：服务状态、后端地址、检测器、基础与分类阈值、连续帧窗口、候选差值、摄像头运行状态和视觉依赖可用性。
+
+关键字段为 `status`、`backendUrl`、`visionAvailable`、`cameraRunning`、`detectorBackends`、`faceExpandPercentage`、`threshold`、`temporalWindow`、`minimumEmotionMargin`、`minimumTemporalAgreement` 和 `classThresholds`。
 
 ### 10.2 模拟结果
 
@@ -391,6 +485,18 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 - 停止：`POST http://localhost:8000/camera/stop`
 - 说明：启动操作创建后台采样任务，停止操作释放摄像头。视觉依赖缺失时返回 503。
 
+启动请求：
+
+```json
+{
+  "sessionId": 1,
+  "cameraIndex": 0,
+  "deviceId": "classroom-camera"
+}
+```
+
+摄像头任务已运行时返回 409。停止时若无运行任务，返回 `{"stopped": false, "reason": "NOT_RUNNING"}`；成功停止返回 `{"stopped": true}`。
+
 ## 11 Socket.IO 事件
 
 ### 11.1 连接认证
@@ -420,3 +526,11 @@ X-AI-Token: <AI_SERVICE_TOKEN>
 6. 使用管理员 JWT测试课程、课堂、排课、统计和 CSV。
 7. 调用 AI `/health` 和 `/simulate`。
 8. 最后在具备视觉依赖的设备验证上传帧和摄像头接口。
+
+## 13 接口版本与兼容约定
+
+- 后端使用 OpenAPI 3.0.3，接口文档版本为 1.1.0。
+- JSON 字段统一采用 camelCase；FastAPI 通过 Pydantic 别名接受相同格式。
+- 时间统一使用带时区的 ISO 8601 字符串，数据库按 UTC 字符串保存。
+- 新增响应字段保持向后兼容；删除或重命名字段时同步更新 Web、OpenAPI、测试与本文档。
+- 浏览器帧请求同时受 Express 2 MB JSON 上限和 `imageBase64` 2,000,000 字符校验，应发送压缩 JPEG 单帧，不发送原始视频流。
