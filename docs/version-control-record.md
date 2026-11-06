@@ -6,9 +6,8 @@
 |---|---|
 | 代码托管平台 | GitHub |
 | 仓库地址 | `https://github.com/Qian122/emoji.git` |
-| 主分支 | `main` |
-| 开发分支 | `develop` |
-| 功能分支 | `feature/backend`、`feature/frontend`、`feature/ai-integration`、`docs/final-report` |
+| Web 系统主分支 | `main` |
+| Android 平行项目分支 | `android-app` |
 | 发布标签 | `v1.0.0` |
 
 ## 2 分支管理
@@ -16,28 +15,16 @@
 ```mermaid
 gitGraph
   commit id: "project-init"
-  branch develop
-  branch feature/backend
   commit id: "backend-core"
-  checkout develop
-  merge feature/backend
-  branch feature/frontend
   commit id: "web-client"
-  checkout develop
-  merge feature/frontend
-  branch feature/ai-integration
   commit id: "ai-service"
-  checkout develop
-  merge feature/ai-integration
-  branch docs/final-report
-  commit id: "project-docs"
-  checkout develop
-  merge docs/final-report
-  checkout main
-  merge develop tag: "v1.0.0"
+  commit id: "project-docs" tag: "v1.0.0"
+  commit id: "camera-preview"
+  commit id: "face-detection"
+  commit id: "single-frame-ai"
 ```
 
-`main` 保存稳定版本，`develop` 用于集成，功能和文档在独立分支完成后合并到 `develop`，测试通过后合并到 `main`。
+`main` 保存完整 Web、后端、数据库、AI 服务和实验文档。`android-app` 保存独立 Android 客户端和调试 APK，两者在目录和构建流程上互不影响。开发阶段使用过 `develop`、`feature/*` 和 `docs/final-report`，相关内容全部合并到 `main` 后已清理分支；合并提交仍保留在 `main` 历史中。
 
 ## 3 提交规范
 
