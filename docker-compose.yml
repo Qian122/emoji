@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      DB_PATH: /app/data/emoji-checker.db
+      JWT_SECRET: ${JWT_SECRET:-replace-this-jwt-secret}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-replace-this-ai-token}
+      ADMIN_REGISTRATION_CODE: ${ADMIN_REGISTRATION_CODE:-change-me}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    ports:
+      - "3000:3000"
+    volumes:
+      - emoji-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  ai-service:
+    build: ./ai-service
+    restart: unless-stopped
+    environment:
+      AI_BACKEND_URL: http://backend:3000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-replace-this-ai-token}
+      AI_CONFIDENCE_THRESHOLD: ${AI_CONFIDENCE_THRESHOLD:-0.65}
+      AI_SAMPLE_INTERVAL_SECONDS: ${AI_SAMPLE_INTERVAL_SECONDS:-3}
+    ports:
+      - "8000:8000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  emoji-data:

@@ -1,0 +1,6 @@
+fastapi==0.115.8
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+opencv-python-headless==4.11.0.86
+deepface==0.0.93
+python-multipart==0.0.20
