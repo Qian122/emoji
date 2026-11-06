@@ -61,7 +61,11 @@ Build > Build App Bundles or APKs > Build APKs
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-GitHub Actions 会在 `android-app` 分支提交时自动运行单元测试、Lint 和 APK 构建，并上传 `emoji-classroom-debug-apk` 构建产物。
+GitHub Actions 会在 `android-app` 分支提交时自动运行单元测试、Lint 和 APK 构建，并上传 `emoji-classroom-debug-apk` 构建产物。构建成功后还会将最新 APK 发布到：
+
+```text
+dist/emoji-classroom-checker-debug.apk
+```
 
 ## 5 连接后端
 

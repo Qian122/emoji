@@ -3,11 +3,13 @@ name: Android CI
 on:
   push:
     branches: [android-app]
+    paths-ignore:
+      - 'dist/**'
   pull_request:
     branches: [android-app]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -45,3 +47,18 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish APK to dist directory
+        if: github.event_name == 'push' && github.ref == 'refs/heads/android-app'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/emoji-classroom-checker-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dist/emoji-classroom-checker-debug.apk
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "build(android): publish latest debug APK"
+          git push origin HEAD:android-app
